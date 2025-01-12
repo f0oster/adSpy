@@ -16,7 +16,7 @@ To install **adSpy**, follow these steps:
 
 1. Clone the repository:
     ```bash
-    git clone https://github.com/yourusername/adSpy.git
+    git clone https://github.com/f0oster/adSpy
     ```
 
 2. Navigate into the project directory:
