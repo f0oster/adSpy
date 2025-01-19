@@ -19,7 +19,13 @@ func main() {
 	adInstance.Connect(adSpyConfig.Username, adSpyConfig.Password)
 	adInstance.LoadSchema()
 	adInstance.FetchHighestUSN()
-	adInstance.FetchPagedEntriesWithCallback(ldaphelpers.AllGroupObjects, 1000, ldaphelpers.PrintToConsole)
+
+	db := database.NewDatabase("postgres://postgres:example@dockerprdap01:5432/adspy", "postgres://postgres:example@dockerprdap01:5432/postgres", ctx)
+	db.Connect()
+	db.InitalizeDomain(adInstance)
+
+	// adInstance.FetchPagedEntriesWithCallback(ldaphelpers.AllUserObjects, 1000, ldaphelpers.PrintToConsole)
+	adInstance.FetchPagedEntriesWithCallback(ldaphelpers.AllUserObjects, 1000, db.WriteObjects)
 
 	return
 }

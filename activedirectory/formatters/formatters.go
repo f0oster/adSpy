@@ -6,6 +6,8 @@ import (
 	"fmt"
 )
 
+// TODO: dynamically these formatters at the schema level, similar to transformers
+
 // convertSIDToString formats a byte array containing an object SID to a string in SID format.
 func ConvertSIDToString(sidBytes []byte) (string, error) {
 	// Minimum SID length is 8 bytes: revision (1), sub-authority count (1), authority (6)
@@ -55,4 +57,20 @@ func FormatADGuidAsString(rawValue []byte) string {
 		rawValue[8], rawValue[9], rawValue[10], rawValue[11],
 		rawValue[12], rawValue[13], rawValue[14], rawValue[15],
 	)
+}
+
+func FormatObjectGUID(bytes []byte) ([]byte, error) {
+	if len(bytes) != 16 {
+		return nil, fmt.Errorf("invalid length for GUID: expected 16 bytes, got %d", len(bytes))
+	}
+
+	// Reorder bytes for little-endian format
+	leBytes := make([]byte, 16)
+	copy(leBytes, bytes)
+
+	leBytes[0], leBytes[1], leBytes[2], leBytes[3] = leBytes[3], leBytes[2], leBytes[1], leBytes[0] // First 4 bytes
+	leBytes[4], leBytes[5] = leBytes[5], leBytes[4]                                                 // Next 2 bytes
+	leBytes[6], leBytes[7] = leBytes[7], leBytes[6]                                                 // Next 2 bytes
+
+	return leBytes, nil
 }

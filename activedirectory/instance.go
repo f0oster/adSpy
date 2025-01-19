@@ -4,12 +4,9 @@ import (
 	"fmt"
 	"log"
 	"strconv"
-	"strings"
-	"time"
-
-	"f0oster/adspy/activedirectory/formatters"
 
 	"github.com/go-ldap/ldap/v3"
+	"github.com/google/uuid"
 )
 
 type ActiveDirectoryInstance struct {
@@ -17,8 +14,9 @@ type ActiveDirectoryInstance struct {
 	DomainControllerFQDN string
 	PageSize             uint32
 	HighestCommittedUSN  int64
-	SchemaMap            map[string]AttributeSchema
+	SchemaAttributeMap   map[string]AttributeSchema
 	ldapConnection       *ldap.Conn
+	DomainId             uuid.UUID
 }
 
 func NewActiveDirectoryInstance(baseDn string, domainControllerDn string, pageSize uint32) *ActiveDirectoryInstance {
@@ -26,21 +24,22 @@ func NewActiveDirectoryInstance(baseDn string, domainControllerDn string, pageSi
 		BaseDn:               baseDn,
 		DomainControllerFQDN: domainControllerDn,
 		PageSize:             pageSize,
-		SchemaMap:            make(map[string]AttributeSchema),
+		SchemaAttributeMap:   make(map[string]AttributeSchema),
 	}
 }
 
 // Connect to the Active Directory Domain Controller
 func (ad *ActiveDirectoryInstance) Connect(username, password string) bool {
-	bindString := fmt.Sprintf("ldap://%s:389", ad.DomainControllerFQDN)
 	var err error
+
+	bindString := fmt.Sprintf("ldap://%s:389", ad.DomainControllerFQDN)
 	ad.ldapConnection, err = ldap.DialURL(bindString)
 	if err != nil {
 		log.Printf("Failed to connect to LDAP server: %v\n", err)
 		return false
 	}
 
-	// TODO: LDAPS, IWA, etc
+	// TODO: LDAPS, IWA/GSSAPI, etc
 	err = ad.ldapConnection.Bind(username, password)
 	if err != nil {
 		ad.ldapConnection.Close()
@@ -48,22 +47,28 @@ func (ad *ActiveDirectoryInstance) Connect(username, password string) bool {
 		return false
 	}
 
+	res, err := ad.ldapConnection.WhoAmI(nil)
+	if err != nil {
+		log.Printf("Failed to call WhoAmI(): %s\n", err)
+		return false
+	}
+	fmt.Printf("Authenticated to %s as %s\n", bindString, res.AuthzID)
+
 	return true
 }
 
-// Load schema data dynamically
+// Load AttributeSchema data dynamically
 func (ad *ActiveDirectoryInstance) LoadSchema() error {
 	schemaBaseDN := "CN=Schema,CN=Configuration," + ad.BaseDn
 
-	// Query for attribute schema
 	attributesRequest := ldap.NewSearchRequest(
 		schemaBaseDN,
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
 		0, 0, false,
-		"(objectClass=attributeSchema)", // Searching for attributes
+		"(objectClass=attributeSchema)", // Searching for attributeSchema
 		[]string{"cn", "lDAPDisplayName", "attributeID", "attributeSyntax", "oMSyntax"},
-		nil,
+		nil, // no control
 	)
 
 	// Perform paged search for attributes
@@ -80,16 +85,15 @@ func (ad *ActiveDirectoryInstance) LoadSchema() error {
 		attributeSyntax := entry.GetAttributeValue("attributeSyntax")
 		oMSyntax := entry.GetAttributeValue("oMSyntax")
 
-		// goNativeType := determineGoNativeType(attributeSyntax, oMSyntax)
 		goNativeType, err := mapSchemaToTypes(attributeSyntax, oMSyntax)
 
 		if err != nil {
 			return fmt.Errorf("error mapping schema to types: %v", err)
 		}
 
-		fmt.Println("Adding type for:", ldapDisplayName)
+		// fmt.Println("Adding type for:", ldapDisplayName)
 
-		ad.SchemaMap[ldapDisplayName] = AttributeSchema{
+		ad.SchemaAttributeMap[ldapDisplayName] = AttributeSchema{
 			AttributeName:      attributeName,
 			AttributeLDAPName:  ldapDisplayName,
 			AttributeID:        attributeID,
@@ -134,59 +138,25 @@ func (ad *ActiveDirectoryInstance) FetchHighestUSN() error {
 	return nil
 }
 
-// unmarshalAttributeData unmarshals raw LDAP attribute values based on schema
-// TODO: rewrite - should marshal to the native types - not transform for output
-// TODO: transforming for output should be handled elsewhere
-func (ad *ActiveDirectoryInstance) UnmarshalAttributeData(attributeLDAPName string, rawValue string) (interface{}, error) {
-	attrSchema, exists := ad.SchemaMap[attributeLDAPName]
-	if !exists {
-		return nil, fmt.Errorf("attribute schema not found for: %v", attributeLDAPName)
-	}
+// create the LDAP_SERVER_SD_FLAGS_OID extended control to return ntSecurityDescriptor
+func CreateSDFlagsControl() ldap.Control {
+	// Construct the BER-encoded sequence for the SD flags
+	// [0x30 0x03 0x02 0x01 0x07] for SD flags = 7 (0x07)
+	// https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ldap/ldap-server-sd-flags-oid
+	// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/3888c2b7-35b9-45b7-afeb-b772aa932dd0
+	// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/3c5e87db-4728-4f29-b164-01dd7d7391ea
+	value := []byte{0x30, 0x03, 0x02, 0x01, 0x07}
 
-	switch attrSchema.AttributeFieldType.GoNativeType {
-	case "string":
-		return rawValue, nil
-	case "int":
-		parsedInt, err := strconv.Atoi(rawValue)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse integer: %v", err)
-		}
-		return parsedInt, nil
-	case "bool":
-		parsedBool, err := strconv.ParseBool(rawValue)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse boolean: %v", err)
-		}
-		return parsedBool, nil
-	case "int64":
-		parsedInt64, err := strconv.ParseInt(rawValue, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse large integer: %v", err)
-		}
-		return parsedInt64, nil
-	case "time.Time":
-		parsedTime, err := time.Parse("20060102150405.0Z", rawValue)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse time: %v", err)
-		}
-		return parsedTime, nil
-	case "[]byte":
-		if attributeLDAPName == "objectSid" {
-			return formatters.ConvertSIDToString([]byte(rawValue))
-		} else if strings.HasSuffix(strings.ToLower(attributeLDAPName), "guid") {
-			return formatters.FormatADGuidAsString([]byte(rawValue)), nil
-		} else {
-			return []byte(rawValue), nil
-		}
-	default:
-		return nil, fmt.Errorf("unsupported Go type (%s) for attribute %v", attrSchema.AttributeFieldType.GoNativeType, attributeLDAPName)
-	}
+	return ldap.NewControlString("1.2.840.113556.1.4.801", true, string(value))
 }
 
 // perform a paged LDAP query and callback per page
 func (ad *ActiveDirectoryInstance) FetchPagedEntriesWithCallback(
 	filter string, pageSize uint32, processPage func(adInstance *ActiveDirectoryInstance, entries []*ldap.Entry) error,
 ) error {
+
+	sdFlagsControl := CreateSDFlagsControl()
+
 	pageControl := ldap.NewControlPaging(pageSize)
 	pageRequest := ldap.NewSearchRequest(
 		ad.BaseDn,
@@ -195,7 +165,7 @@ func (ad *ActiveDirectoryInstance) FetchPagedEntriesWithCallback(
 		0, 0, false,
 		filter,
 		[]string{}, // Fetch all attributes
-		[]ldap.Control{pageControl},
+		[]ldap.Control{pageControl, sdFlagsControl},
 	)
 
 	for {
