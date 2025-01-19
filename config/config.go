@@ -26,20 +26,18 @@ func LoadEnvConfig(configName string) ADSpyConfiguration {
 	dcFQDN := string(os.Getenv("LDAP_DCFQDN"))
 	username := string(os.Getenv("LDAP_USERNAME"))
 	password := string(os.Getenv("LDAP_PASSWORD"))
-	tempPageSize, err := strconv.Atoi(os.Getenv("LDAP_PAGESIZE"))
+	pageSize, err := strconv.ParseUint(os.Getenv("LDAP_PAGESIZE"), 10, 32)
 
 	if err != nil {
-		log.Fatalf("failed to parse integer: %v", err)
+		log.Fatalf("failed to parse integer for LDAP_PAGESIZE: %v", err)
 	}
-
-	pageSize := uint32(tempPageSize)
 
 	return ADSpyConfiguration{
 		BaseDN:   baseDN,
 		DcFQDN:   dcFQDN,
 		Username: username,
 		Password: password,
-		PageSize: pageSize,
+		PageSize: uint32(pageSize),
 	}
 
 }
