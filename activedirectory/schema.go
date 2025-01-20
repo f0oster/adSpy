@@ -52,11 +52,15 @@ func mapSchemaToTypes(attributeSyntax, oMSyntax string) (*AttributeFieldType, er
 			"1": *NewAttributeFieldType("bool", formatters.BoolTransformer{}, "Boolean"),
 		},
 		"2.5.5.9": {
-			"2":  *NewAttributeFieldType("int", formatters.IntTransformer{}, "Integer"),
-			"10": *NewAttributeFieldType("int", formatters.IntTransformer{}, "Enumeration/Enumeration(Delivery-Mechanism)/Enumeration(Export-Information-Level)/Enumeration(Preferred-Delivery-Method)"),
+			"2":  *NewAttributeFieldType("string", formatters.StringTransformer{}, "Integer"),
+			"10": *NewAttributeFieldType("string", formatters.StringTransformer{}, "Enumeration/Enumeration(Delivery-Mechanism)/Enumeration(Export-Information-Level)/Enumeration(Preferred-Delivery-Method)"),
+
+			// "2":  *NewAttributeFieldType("int", formatters.IntTransformer{}, "Integer"),
+			// "10": *NewAttributeFieldType("int", formatters.IntTransformer{}, "Enumeration/Enumeration(Delivery-Mechanism)/Enumeration(Export-Information-Level)/Enumeration(Preferred-Delivery-Method)"),
 		},
 		"2.5.5.16": {
-			"65": *NewAttributeFieldType("int64", formatters.Int64Transformer{}, "Interval/Large Integer (ADSTYPE_LARGE_INTEGER)"),
+			// "65": *NewAttributeFieldType("int64", formatters.Int64Transformer{}, "Interval/Large Integer (ADSTYPE_LARGE_INTEGER)"),
+			"65": *NewAttributeFieldType("string", formatters.StringTransformer{}, "Interval/Large Integer (ADSTYPE_LARGE_INTEGER)"),
 		},
 
 		"2.5.5.13": {
@@ -82,7 +86,8 @@ func mapSchemaToTypes(attributeSyntax, oMSyntax string) (*AttributeFieldType, er
 
 		"2.5.5.11": {
 			"23": *NewAttributeFieldType("string", formatters.StringTransformer{}, "String(UTC-Time)"),
-			"24": *NewAttributeFieldType("time.Time", formatters.TimeTransformer{Layout: "20060102150405.0Z"}, "String(Generalized-Time)"),
+			"24": *NewAttributeFieldType("string", formatters.StringTransformer{}, "String(Generalized-Time)"),
+			// "24": *NewAttributeFieldType("time.Time", formatters.TimeTransformer{Layout: "20060102150405.0Z"}, "String(Generalized-Time)"),
 		},
 
 		"2.5.5.5": {

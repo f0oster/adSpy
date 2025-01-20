@@ -8,6 +8,7 @@ import (
 	"f0oster/adspy/activedirectory/ldaphelpers"
 	"fmt"
 	"log"
+	"reflect"
 	"time"
 
 	"github.com/go-ldap/ldap/v3"
@@ -62,6 +63,69 @@ func (db *Database) InitalizeDomain(adInstance *activedirectory.ActiveDirectoryI
 
 }
 
+// TODO: Implement uniform serialization/deserialization
+func normalizeSlice(value interface{}) ([]interface{}, bool) {
+
+	v := reflect.ValueOf(value)
+	if v.Kind() != reflect.Slice {
+		return nil, false
+	}
+
+	length := v.Len()
+	// Convert the slice elements to []interface{}
+	result := make([]interface{}, length)
+	for i := 0; i < length; i++ {
+		result[i] = v.Index(i).Interface()
+	}
+
+	return result, true
+}
+
+// TODO: Implement uniform serialization/deserialization so normalizeSlice isn't necessary
+func findChanges(LiveADAttributes, DatabaseAttributes map[string]interface{}) []map[string]interface{} {
+	var changes []map[string]interface{}
+
+	for key, newValue := range LiveADAttributes {
+		oldValue, exists := DatabaseAttributes[key]
+
+		reason := ""
+
+		if !exists {
+			reason = "Key does not exist in the DatabaseAttributes"
+		} else {
+			// Normalize slices for comparison
+			newSlice, newIsSlice := normalizeSlice(newValue)
+			oldSlice, oldIsSlice := normalizeSlice(oldValue)
+
+			if newIsSlice && oldIsSlice {
+				if !reflect.DeepEqual(newSlice, oldSlice) {
+					reason = "Value does not match."
+				} else {
+					// fmt.Printf("No change detected for: %s\n", key)
+					continue
+				}
+			} else if !reflect.DeepEqual(newValue, oldValue) {
+				reason = "Value does not match."
+			} else {
+				// fmt.Printf("No change detected for: %s\n", key)
+				continue
+			}
+		}
+
+		changes = append(changes, map[string]interface{}{
+			"attribute_name": key,
+			"old_value":      oldValue,
+			"new_value":      newValue,
+			"reason":         reason,
+		})
+
+		fmt.Printf("Change detected for %s: %s\n", key, reason)
+	}
+
+	return changes
+}
+
+// TODO: refactor & clean - WIP, initial proof of concept
 func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInstance, entries []*ldap.Entry) error {
 	tx, err := db.ConnectionPool.Begin(db.ctx)
 	if err != nil {
@@ -70,7 +134,7 @@ func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInst
 	defer func() {
 		if p := recover(); p != nil {
 			tx.Rollback(db.ctx)
-			panic(p) // Re-throw the panic
+			panic(p)
 		} else if err != nil {
 			tx.Rollback(db.ctx)
 		} else {
@@ -78,15 +142,21 @@ func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInst
 		}
 	}()
 
-	// Prepare SQL queries
+	// TODO: on conflict update all attribs, besides object_id, domain_id and current_version?
 	insertObjectQuery := `
-        INSERT INTO Objects (object_id, object_type, distinguishedName, domain_id, created_at)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (object_id) DO NOTHING
+	INSERT INTO Objects (object_id, object_type, distinguishedName, domain_id)
+	VALUES ($1, $2, $3, $4)
+	ON CONFLICT (object_id) 
+	DO UPDATE SET updated_at = EXCLUDED.updated_at
+	RETURNING current_version;
     `
 	insertObjectVersionQuery := `
         INSERT INTO ObjectVersions (version_id, object_id, timestamp, attributes_snapshot, modified_by)
         VALUES ($1, $2, $3, $4, $5)
+    `
+	insertAttributeChangesQuery := `
+        INSERT INTO AttributeChanges (change_id, version_id, object_id, timestamp, attribute_name, old_value, new_value)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
     `
 	updateObjectVersionQuery := `
         UPDATE Objects
@@ -111,44 +181,105 @@ func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInst
 
 		createdAt := time.Now()
 
-		log.Printf("Upserting object for %s", entry.DN)
-		_, err = tx.Exec(db.ctx, insertObjectQuery, objectID, attributes["objectCategory"], entry.DN, adInstance.DomainId, createdAt)
+		var currentVersion *string
+		err = tx.QueryRow(db.ctx, insertObjectQuery, objectID, attributes["objectCategory"], entry.DN, adInstance.DomainId).Scan(&currentVersion)
 		if err != nil {
 			log.Printf("Failed to insert object for DN %s: %v", entry.DN, err)
 			return fmt.Errorf("failed to insert object for DN %s: %w", entry.DN, err)
 		}
 
-		attributesSnapshot, err := ldaphelpers.SerializeAttributes(entry, adInstance)
+		// Serialize attributes for the object version
+		LiveADAttributeSnapshot, err := ldaphelpers.SerializeAttributes(entry, adInstance)
 		if err != nil {
 			log.Printf("Failed to serialize attributes for DN %s: %v", entry.DN, err)
 			continue
 		}
 
-		// TODO: compare the attributes with current_version (if exists)
-
-		attributesSnapshotJSON, err := json.Marshal(attributesSnapshot)
+		LiveADAttributeSnapshotJSON, err := json.Marshal(LiveADAttributeSnapshot)
 		if err != nil {
 			log.Printf("Failed to serialize attributes to JSON for DN %s: %v", entry.DN, err)
 			return fmt.Errorf("failed to serialize attributes to JSON for DN %s: %w", entry.DN, err)
 		}
 
-		// TODO: conditionally insert object version, only if current state differs from current version
+		// If version differs, or if there are no versions yet, let's create a new version
+		if currentVersion == nil {
+			// No version yet - let's make one
+			log.Printf("Object for DN %s was just created, no current version set yet.", entry.DN)
 
-		// Insert object version
-		objectVersionID := uuid.New()
-		log.Printf("Inserting object version for %s", entry.DN)
-		_, err = tx.Exec(db.ctx, insertObjectVersionQuery, objectVersionID, objectID, createdAt, attributesSnapshotJSON, "system")
-		if err != nil {
-			log.Printf("Failed to insert object version for DN %s: %v", entry.DN, err)
-			return fmt.Errorf("failed to insert object version for DN %s: %w", entry.DN, err)
-		}
+			// Insert the object version
+			objectVersionID := uuid.New()
+			log.Printf("Inserting object version for %s", entry.DN)
+			_, err = tx.Exec(db.ctx, insertObjectVersionQuery, objectVersionID, objectID, createdAt, LiveADAttributeSnapshotJSON, "system")
+			if err != nil {
+				log.Printf("Failed to insert object version for DN %s: %v", entry.DN, err)
+				return fmt.Errorf("failed to insert object version for DN %s: %w", entry.DN, err)
+			}
 
-		// Update current object version
-		log.Printf("Setting current object version for %s", entry.DN)
-		_, err = tx.Exec(db.ctx, updateObjectVersionQuery, objectVersionID, objectID)
-		if err != nil {
-			log.Printf("Failed to set current object version for DN %s: %v", entry.DN, err)
-			return fmt.Errorf("failed to set object version for DN %s: %w", entry.DN, err)
+			// Update the current_version for the object
+			log.Printf("Setting current object version for %s", entry.DN)
+			_, err = tx.Exec(db.ctx, updateObjectVersionQuery, objectVersionID, objectID)
+			if err != nil {
+				log.Printf("Failed to set current object version for DN %s: %v", entry.DN, err)
+				return fmt.Errorf("failed to set object version for DN %s: %w", entry.DN, err)
+			}
+		} else {
+			// there's a corresponding ObjectVersion - let's compare for changes
+			log.Printf("Current version for DN %s: %v", entry.DN, *currentVersion)
+			log.Printf("Fetching current version to compare changes...")
+
+			// Fetch the latest ObjectVersion
+			var existingDatabaseAttributesSnapshotJSON []byte
+			err = tx.QueryRow(db.ctx, `
+					SELECT attributes_snapshot, current_version
+					FROM Objects
+					JOIN ObjectVersions ON Objects.current_version = ObjectVersions.version_id
+					WHERE Objects.object_id = $1
+				`, objectID).Scan(&existingDatabaseAttributesSnapshotJSON, &currentVersion)
+
+			if err != nil {
+				log.Fatalf("select snapshot error: %v", err)
+			}
+
+			var existingDatabaseAttributeSnapshot map[string]interface{}
+			err = json.Unmarshal(existingDatabaseAttributesSnapshotJSON, &existingDatabaseAttributeSnapshot)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Compare the live AD values with the DB snapshot
+			mismatchedAttrs := findChanges(LiveADAttributeSnapshot, existingDatabaseAttributeSnapshot)
+
+			// If there are changes, we create a new objectversion
+			if len(mismatchedAttrs) > 0 {
+				log.Printf("Changes detected on attributes for DN %s: %v", entry.DN, mismatchedAttrs)
+				objectVersionID := uuid.New()
+				log.Printf("Inserting new object version for %s", entry.DN)
+				_, err = tx.Exec(db.ctx, insertObjectVersionQuery, objectVersionID, objectID, createdAt, LiveADAttributeSnapshotJSON, "system")
+				if err != nil {
+					log.Printf("Failed to insert object version for DN %s: %v", entry.DN, err)
+					return fmt.Errorf("failed to insert object version for DN %s: %w", entry.DN, err)
+				}
+
+				// Handle each attribute mismatch
+				for key, value := range mismatchedAttrs {
+					log.Printf("Writing AttributeChange for DN %s: %v", entry.DN, key)
+					_, err = tx.Exec(db.ctx, insertAttributeChangesQuery, uuid.New(), objectVersionID, objectID, createdAt, value["attribute_name"], value["old_value"], value["new_value"])
+					if err != nil {
+						log.Printf("Failed to insert AttributeChange: %v", err)
+						return fmt.Errorf("failed to insert AttributeChange: %w", err)
+					}
+				}
+
+				// Update the current_version for the object
+				log.Printf("Setting object current_version for %s", entry.DN)
+				_, err = tx.Exec(db.ctx, updateObjectVersionQuery, objectVersionID, objectID)
+				if err != nil {
+					log.Printf("Failed to set current object version for DN %s: %v", entry.DN, err)
+					return fmt.Errorf("failed to set object version for DN %s: %w", entry.DN, err)
+				}
+			} else {
+				log.Printf("No changes detected for DN %s", entry.DN)
+			}
 		}
 	}
 
@@ -206,6 +337,7 @@ func ResetDatabase(ctx context.Context) {
 	    current_version UUID,
 	    domain_id UUID,
 	    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	    deleted_at TIMESTAMP
 	);
 
