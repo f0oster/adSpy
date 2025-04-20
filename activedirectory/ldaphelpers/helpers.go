@@ -4,6 +4,7 @@ import (
 	"f0oster/adspy/activedirectory"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 
 	"github.com/go-ldap/ldap/v3"
@@ -15,120 +16,119 @@ const (
 	AllUserObjects  = "(&(objectCategory=person)(objectClass=user))"
 )
 
-// Return a map of matched fetched single value attributes from an *ldap.Entry
-func ExtractAttributes(entry *ldap.Entry, requiredAttrs []string) (map[string]string, error) {
-	attrMap := make(map[string]string)
-	for _, attr := range entry.Attributes {
-		attrMap[strings.ToLower(attr.Name)] = attr.Values[0]
-	}
-
-	result := make(map[string]string)
-	for _, attr := range requiredAttrs {
-		value, exists := attrMap[strings.ToLower(attr)]
-		if !exists || value == "" {
-			return nil, fmt.Errorf("missing or empty attribute: %s", attr)
-		}
-		result[attr] = value
-	}
-
-	return result, nil
+type Filter interface {
+	String() string
 }
 
-// marshal LDAP result into a map based on Transformer assigned to the AttributeFieldType in the AttributeSchema
-func SerializeAttributes(entry *ldap.Entry, adInstance *activedirectory.ActiveDirectoryInstance) (map[string]interface{}, error) {
-	attributesSnapshot := make(map[string]interface{})
+type rawFilter string
 
-	for _, attr := range entry.Attributes {
-		schema, exists := adInstance.SchemaAttributeMap[attr.Name]
-		if !exists {
-			log.Printf("No schema found for attribute %s", attr.Name)
+func (f rawFilter) String() string {
+	return string(f)
+}
+
+// Logical operators
+type andFilter struct {
+	parts []Filter
+}
+
+func And(filters ...Filter) Filter {
+	return andFilter{parts: filters}
+}
+func (f andFilter) String() string {
+	var parts []string
+	for _, p := range f.parts {
+		parts = append(parts, p.String())
+	}
+	return "(&" + strings.Join(parts, "") + ")"
+}
+
+type orFilter struct {
+	parts []Filter
+}
+
+func Or(filters ...Filter) Filter {
+	return orFilter{parts: filters}
+}
+func (f orFilter) String() string {
+	var parts []string
+	for _, p := range f.parts {
+		parts = append(parts, p.String())
+	}
+	return "(|" + strings.Join(parts, "") + ")"
+}
+
+type notFilter struct {
+	part Filter
+}
+
+func Not(f Filter) Filter {
+	return notFilter{part: f}
+}
+func (f notFilter) String() string {
+	return "(!" + f.part.String() + ")"
+}
+
+// Comparison operators
+func Eq(attr, value string) Filter {
+	return rawFilter("(" + attr + "=" + value + ")")
+}
+func Present(attr string) Filter {
+	return rawFilter("(" + attr + "=*)")
+}
+
+func PrintToConsole(adInstance *activedirectory.ActiveDirectoryInstance, entries []*ldap.Entry) error {
+	for _, entry := range entries {
+		adObject, err := adInstance.ParseLDAPAttributeValues(entry)
+		if err != nil {
+			log.Printf("Skipping entry for DN %s: %v", entry.DN, err)
 			continue
 		}
 
-		if schema.AttributeFieldType.TransformMethod != nil {
-			transformedValue, err := schema.AttributeFieldType.TransformMethod.Transform(attr.Values)
-			if err != nil {
-				return nil, fmt.Errorf("failed to transform attribute %s: %w", attr.Name, err)
-			}
-			attributesSnapshot[attr.Name] = transformedValue
-		} else {
-			// Handle attributes without a transformer
-			log.Printf("Serializer falling back to raw value - no mapped transformer for: %s", attr.Name)
-			attributesSnapshot[attr.Name] = attr.Values
+		fmt.Println(strings.Repeat("─", 80))
+		fmt.Printf("DN: %s\n", adObject.DN)
+		fmt.Println(strings.Repeat("─", 80))
+
+		sortedAttrNames := make([]string, 0, len(adObject.AttributeValues))
+		for name := range adObject.AttributeValues {
+			sortedAttrNames = append(sortedAttrNames, name)
 		}
-	}
+		sort.Strings(sortedAttrNames)
 
-	return attributesSnapshot, nil
-}
-
-// print the LDAP search results to console
-func PrintToConsole(adInstance *activedirectory.ActiveDirectoryInstance, entries []*ldap.Entry) error {
-	for _, entry := range entries {
-		var schemas []activedirectory.AttributeSchema
-		values := make(map[string][]string)
-
-		// Map attributes to their schemas
-		for _, attribute := range entry.Attributes {
-			if schema, ok := adInstance.SchemaAttributeMap[attribute.Name]; ok {
-				schemas = append(schemas, schema)
-				values[attribute.Name] = attribute.Values
-			}
-		}
-
-		// Print entry header
-		fmt.Println(strings.Repeat("─", 80)) // Horizontal separator
-		fmt.Printf("DN: %s\n", entry.DN)
-		fmt.Println(strings.Repeat("─", 80)) // Horizontal separator
-
-		// Iterate through schemas and print their details
-		for i, schema := range schemas {
-			// Print attribute name
+		for i, attrName := range sortedAttrNames {
+			attr := adObject.AttributeValues[attrName]
 			prefix := "├───"
-			if i == len(schemas)-1 {
+			if i == len(sortedAttrNames)-1 {
 				prefix = "└───"
 			}
-			fmt.Printf("%sAttribute: %s (%s)\n", prefix, schema.AttributeName, schema.AttributeLDAPName)
 
-			// Indent and print schema details
+			schema := attr.Schema
+			fmt.Printf("%sAttribute: %s (%s)\n", prefix, schema.AttributeName, schema.AttributeLDAPName)
 			fmt.Printf("    ├──AttributeID: %s\n", schema.AttributeID)
 			fmt.Printf("    ├──AttributeSyntax: %s\n", schema.AttributeSyntax)
 			fmt.Printf("    ├──AttributeOMSyntax: %s\n", schema.AttributeOMSyntax)
 			fmt.Printf("    ├──SchemaSyntax: %s\n", schema.AttributeFieldType.SyntaxName)
-			fmt.Printf("    ├──GoNativeType: %s\n", schema.AttributeFieldType.GoNativeType)
+			fmt.Printf("    ├──GoType: %s\n", schema.AttributeFieldType.GoType.String())
 
-			// Print attribute values using the schema's transformer
-			attrValues, ok := values[schema.AttributeLDAPName]
-			if !ok || len(attrValues) == 0 {
+			// Display the values
+			asStr, err := attr.AsStringSlice()
+			if err != nil {
+				log.Printf("[error: %v]", err)
+			}
+
+			if len(asStr) == 0 {
 				fmt.Println("    └──Value: [No values]")
 				continue
 			}
 
-			for j, rawValue := range attrValues {
-				var transformedValue interface{}
-				var err error
-
-				// Use the schema's transformer, if available
-				if schema.AttributeFieldType.TransformMethod != nil {
-					transformedValue, err = schema.AttributeFieldType.TransformMethod.Transform([]string{rawValue})
-					if err != nil {
-						log.Printf("Error transforming attribute %s: %v\n", schema.AttributeLDAPName, err)
-						continue
-					}
-				} else {
-					// use the raw value if no transformer is defined
-					log.Printf("No transformer was defined for %s\n", schema.AttributeLDAPName)
-					transformedValue = rawValue
-				}
-
-				// Determine if it's the last value for formatting
+			for j, val := range asStr {
 				valuePrefix := "    ├──Value:"
-				if j == len(attrValues)-1 {
+				if j == len(asStr)-1 {
 					valuePrefix = "    └──Value:"
 				}
-				fmt.Printf("%s %v\n", valuePrefix, transformedValue)
+
+				fmt.Printf("%s %v\n", valuePrefix, val)
 			}
 		}
 	}
-
 	return nil
 }

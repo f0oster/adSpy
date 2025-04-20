@@ -1,12 +1,10 @@
-package formatters
+package transformers
 
 import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
 )
-
-// TODO: dynamically these formatters at the schema level, similar to transformers
 
 // convertSIDToString formats a byte array containing an object SID to a string in SID format.
 func ConvertSIDToString(sidBytes []byte) (string, error) {
@@ -73,4 +71,10 @@ func FormatObjectGUID(bytes []byte) ([]byte, error) {
 	leBytes[6], leBytes[7] = leBytes[7], leBytes[6]                                                 // Next 2 bytes
 
 	return leBytes, nil
+}
+
+func parseInt64(s string) (int64, error) {
+	var v int64
+	_, err := fmt.Sscan(s, &v)
+	return v, err
 }

@@ -2,17 +2,26 @@ package main
 
 import (
 	"context"
-
+	"encoding/json"
 	"f0oster/adspy/activedirectory"
 	"f0oster/adspy/activedirectory/ldaphelpers"
 	"f0oster/adspy/config"
 	"f0oster/adspy/database"
+	"fmt"
 )
+
+func MarshalADObjectsToJSON(adObjects []activedirectory.ActiveDirectoryObject) ([]byte, error) {
+	flat := make([]activedirectory.NormalizedADObject, len(adObjects))
+	for i, obj := range adObjects {
+		flat[i] = activedirectory.ToNormalizedADObject(obj)
+	}
+	return json.MarshalIndent(flat, "", "  ")
+}
 
 func main() {
 
 	ctx := context.Background()
-	database.ResetDatabase(ctx)
+	// database.ResetDatabase(ctx)
 
 	adSpyConfig := config.LoadEnvConfig("settings.env")
 	adInstance := activedirectory.NewActiveDirectoryInstance(adSpyConfig.BaseDN, adSpyConfig.DcFQDN, adSpyConfig.PageSize)
@@ -24,8 +33,15 @@ func main() {
 	db.Connect()
 	db.InitalizeDomain(adInstance)
 
-	// adInstance.FetchPagedEntriesWithCallback(ldaphelpers.AllUserObjects, 1000, ldaphelpers.PrintToConsole)
-	adInstance.FetchPagedEntriesWithCallback(ldaphelpers.AllUserObjects, 1000, db.WriteObjects)
+	// ldapFilter := ldaphelpers.And(
+	// 	ldaphelpers.Eq("objectClass", "user"),
+	// 	ldaphelpers.Eq("objectCategory", "person"),
+	// 	ldaphelpers.Eq("userAccountControl", "514"),
+	// ).String()
+	// adInstance.FetchPagedEntriesWithCallback(ldapFilter, 1000, ldaphelpers.PrintToConsole)
 
-	return
+	err := adInstance.FetchPagedEntriesWithCallback(ldaphelpers.AllObjects, 1000, db.WriteObjects)
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+	}
 }
