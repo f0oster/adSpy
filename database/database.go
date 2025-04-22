@@ -12,10 +12,8 @@ import (
 	"github.com/go-ldap/ldap/v3"
 	"github.com/google/uuid"
 
-	// "github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	// "github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Database struct {
@@ -79,81 +77,6 @@ func rollbackOrCommit(tx pgx.Tx, err *error) {
 		}
 	}
 }
-
-/*
-type AttributeChange struct {
-	Name string
-	Old  interface{}
-	New  interface{}
-}
-
-func findChangedAttributesGeneric(prev, curr map[string]interface{}) []AttributeChange {
-	var changes []AttributeChange
-
-	// Detect changed or added attributes
-	for k, newVal := range curr {
-		oldVal, exists := prev[k]
-		equal := compareAsStringOrSlice(oldVal, newVal)
-		if !exists || !equal {
-			changes = append(changes, AttributeChange{
-				Name: k,
-				Old:  oldVal,
-				New:  newVal,
-			})
-		}
-	}
-
-	// Detect removed attributes
-	for k, oldVal := range prev {
-		if _, exists := curr[k]; !exists {
-			changes = append(changes, AttributeChange{
-				Name: k,
-				Old:  oldVal,
-				New:  nil,
-			})
-		}
-	}
-
-	return changes
-}
-
-func compareAsStringOrSlice(a, b interface{}) bool {
-	aslice := flattenToStrings(a)
-	bslice := flattenToStrings(b)
-
-	if len(aslice) != len(bslice) {
-		return false
-	}
-
-	for i := range aslice {
-		if aslice[i] != bslice[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func flattenToStrings(v interface{}) []string {
-	if v == nil {
-		return nil
-	}
-
-	switch val := v.(type) {
-	case string:
-		return []string{val}
-	case []string:
-		return val
-	case []interface{}:
-		result := make([]string, len(val))
-		for i, e := range val {
-			result[i] = fmt.Sprintf("%v", e)
-		}
-		return result
-	default:
-		return []string{fmt.Sprintf("%v", val)}
-	}
-}
-*/
 
 func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInstance, entries []*ldap.Entry) error {
 	tx, err := db.ConnectionPool.Begin(db.ctx)
