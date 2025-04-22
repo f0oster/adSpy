@@ -11,9 +11,9 @@ import (
 )
 
 func MarshalADObjectsToJSON(adObjects []activedirectory.ActiveDirectoryObject) ([]byte, error) {
-	flat := make([]activedirectory.NormalizedADObject, len(adObjects))
+	flat := make([]activedirectory.ADSnapshot, len(adObjects))
 	for i, obj := range adObjects {
-		flat[i] = activedirectory.ToNormalizedADObject(obj)
+		flat[i] = activedirectory.ToADSnapshot(obj)
 	}
 	return json.MarshalIndent(flat, "", "  ")
 }
@@ -33,14 +33,12 @@ func main() {
 	db.Connect()
 	db.InitalizeDomain(adInstance)
 
-	// ldapFilter := ldaphelpers.And(
-	// 	ldaphelpers.Eq("objectClass", "user"),
-	// 	ldaphelpers.Eq("objectCategory", "person"),
-	// 	ldaphelpers.Eq("userAccountControl", "514"),
-	// ).String()
-	// adInstance.FetchPagedEntriesWithCallback(ldapFilter, 1000, ldaphelpers.PrintToConsole)
+	ldapFilter := ldaphelpers.And(
+		ldaphelpers.Eq("objectClass", "*"),
+		ldaphelpers.Eq("objectCategory", "*"),
+	).String()
 
-	err := adInstance.FetchPagedEntriesWithCallback(ldaphelpers.AllObjects, 1000, db.WriteObjects)
+	err := adInstance.FetchPagedEntriesWithCallback(ldapFilter, 1000, db.WriteObjectsConcurrent)
 	if err != nil {
 		fmt.Printf("error: %v\n", err)
 	}

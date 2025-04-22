@@ -3,24 +3,20 @@ package activedirectory
 import (
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
+	"strings"
 
+	"f0oster/adspy/activedirectory/ldaphelpers"
 	"f0oster/adspy/activedirectory/schema"
+	"f0oster/adspy/activedirectory/schema/accessors"
 
 	"github.com/f0oster/gontsd"
 	"github.com/go-ldap/ldap/v3"
 	"github.com/google/uuid"
 )
 
-type ActiveDirectoryInstance struct {
-	BaseDn               string
-	DomainControllerFQDN string
-	PageSize             uint32
-	HighestCommittedUSN  int64
-	SchemaRegistry       *schema.SchemaRegistry
-	ldapConnection       *ldap.Conn
-	DomainId             uuid.UUID
-}
+// TODO: CLean / Refactor - separate related functionality into their own files
 
 func NewActiveDirectoryInstance(baseDn string, domainControllerDn string, pageSize uint32) *ActiveDirectoryInstance {
 	return &ActiveDirectoryInstance{
@@ -203,11 +199,19 @@ func (ad *ActiveDirectoryInstance) FetchPagedEntriesWithCallback(
 	return nil
 }
 
-type ActiveDirectoryObject struct {
-	DN                   string
-	PrimaryObjectClass   string
-	NTSecurityDescriptor *gontsd.SecurityDescriptor
-	AttributeValues      map[string]*schema.AttributeValue
+func PrepareADSnapshot(adObj *ActiveDirectoryObject) *ADSnapshot {
+	n := &ADSnapshot{
+		DN:          adObj.DN,
+		ObjectGUID:  adObj.ObjectGUID.String(),
+		ObjectClass: adObj.PrimaryObjectClass,
+		Attributes:  make(map[string][]string),
+	}
+
+	for k, v := range adObj.AttributeValues {
+		n.Attributes[k] = v.NormalizedValue.Values // always []string
+	}
+
+	return n
 }
 
 func (obj *ActiveDirectoryObject) GetNormalizedAttribute(attrName string) (string, bool) {
@@ -231,41 +235,10 @@ func (obj *ActiveDirectoryObject) GetInterpretedAttribute(attrName string) (inte
 	return attr.InterpretedValue.Values, true
 }
 
-func (obj *ActiveDirectoryObject) GetObjectGUID() (uuid.UUID, error) {
-	rawValue, ok := obj.AttributeValues["objectGUID"]
-	if !ok {
-		return uuid.Nil, nil // attribute not present
-	}
-
-	switch v := rawValue.InterpretedValue.First().(type) {
-	case []uuid.UUID:
-		if len(v) == 0 {
-			return uuid.Nil, fmt.Errorf("objectGUID is an empty []uuid.UUID slice")
-		}
-		return v[0], nil
-	case []interface{}:
-		if len(v) == 0 {
-			return uuid.Nil, fmt.Errorf("objectGUID is an empty []interface{} slice")
-		}
-		guid, ok := v[0].(uuid.UUID)
-		if !ok {
-			return uuid.Nil, fmt.Errorf("objectGUID[0] is not a uuid.UUID (got %T)", v[0])
-		}
-		return guid, nil
-	default:
-		return uuid.Nil, fmt.Errorf("objectGUID is of unsupported type: %T", rawValue)
-	}
-}
-
-type NormalizedADObject struct {
-	DN          string              `json:"dn"`
-	ObjectClass string              `json:"object_class"`
-	Attributes  map[string][]string `json:"attributes"`
-}
-
-func ToNormalizedADObject(obj ActiveDirectoryObject) NormalizedADObject {
-	flat := NormalizedADObject{
+func ToADSnapshot(obj ActiveDirectoryObject) ADSnapshot {
+	flat := ADSnapshot{
 		DN:          obj.DN,
+		ObjectGUID:  obj.ObjectGUID.String(),
 		ObjectClass: obj.PrimaryObjectClass,
 		Attributes:  make(map[string][]string),
 	}
@@ -278,76 +251,25 @@ func ToNormalizedADObject(obj ActiveDirectoryObject) NormalizedADObject {
 	return flat
 }
 
-func (ad *ActiveDirectoryInstance) parseAttribute(attr *ldap.EntryAttribute, schemaAttr schema.AttributeSchema) (*schema.AttributeValue, error) {
-	byteValues := attr.ByteValues
-
-	if schemaAttr.AttributeFieldType.Normalizer == nil {
-		return nil, fmt.Errorf("normalizer not defined for attribute %s", schemaAttr.AttributeLDAPName)
-	}
-
-	// Normalize
-	normalizedStrings, err := schemaAttr.AttributeFieldType.Normalizer.Normalize(byteValues)
-	if err != nil {
-		log.Printf("Failed to normalize %s: %v", attr.Name, err)
-	}
-
-	/*
-		log.Printf("%s %v (%s / %s / %s / SingleValued: %v): %s",
-			attr.Name,
-			normalizedStrings,
-			schemaAttr.AttributeFieldType.SyntaxName,
-			schemaAttr.AttributeSyntax,
-			schemaAttr.AttributeOMSyntax,
-			schemaAttr.AttributeIsSingleValued,
-			schemaAttr.AttributeFieldType.GoType.String(),
-		)
-	*/
-
-	normalized := &schema.NormalizedValue{Values: normalizedStrings}
-
-	// Interpret
-	interpreted := &schema.InterpretedValue{}
-	interpretedVal, err := schemaAttr.AttributeFieldType.Interpreter.Interpret(byteValues)
-	if err != nil {
-		log.Printf("error interpreting %s -  %v\n", attr.Name, err)
-	} else {
-		switch v := interpretedVal.(type) {
-		case []interface{}:
-			interpreted.Values = append(interpreted.Values, v...)
-		default:
-			interpreted.Values = append(interpreted.Values, v)
-		}
-	}
-
-	return &schema.AttributeValue{
-		Name:             attr.Name,
-		NormalizedValue:  normalized,
-		InterpretedValue: interpreted,
-		LDAPRawValue:     attr.Values,
-		LDAPByteValue:    attr.ByteValues,
-		Schema:           &schemaAttr,
-	}, nil
-}
-
-func (ad *ActiveDirectoryInstance) ParseLDAPAttributeValues(entry *ldap.Entry) (ActiveDirectoryObject, error) {
+func (ad *ActiveDirectoryInstance) ParseLDAPAttributeValues(entry *ldap.Entry) (*ActiveDirectoryObject, error) {
 	objectAttributes := make(map[string]*schema.AttributeValue)
 	var (
-		nTSecurityDescriptor *gontsd.SecurityDescriptor
+		objectGUID           uuid.UUID
 		primaryObjectClass   string
+		nTSecurityDescriptor *gontsd.SecurityDescriptor
 	)
 
 	for _, attr := range entry.Attributes {
 
-		// schemaAttr, ok := ad.SchemaAttributeMap[attr.Name]
-		schemaAttr, ok := ad.SchemaRegistry.GetAttributeSchema(attr.Name)
+		attributeSchema, ok := ad.SchemaRegistry.GetAttributeSchema(attr.Name)
 		if !ok {
-			log.Printf("Unknown attribute parsed: %s\n", attr.Name)
+			log.Printf("Skipping parsing for unknown attribute: %s\n", attr.Name)
 			continue
 		}
 
-		parsedAttr, err := ad.parseAttribute(attr, *schemaAttr)
+		parsedAttr, err := ldaphelpers.ParseAttribute(attr, *attributeSchema)
 		if err != nil {
-			return ActiveDirectoryObject{}, fmt.Errorf("failed to parse attribute %s: %w", attr.Name, err)
+			return nil, fmt.Errorf("failed to parse attribute %s: %w", attr.Name, err)
 		}
 		if parsedAttr == nil {
 			continue
@@ -355,17 +277,26 @@ func (ad *ActiveDirectoryInstance) ParseLDAPAttributeValues(entry *ldap.Entry) (
 
 		if attr.Name == "objectClass" && parsedAttr.NormalizedValue != nil {
 			if len(parsedAttr.NormalizedValue.Values) > 0 {
-				primaryObjectClass = parsedAttr.NormalizedValue.Values[len(parsedAttr.NormalizedValue.Values)-1]
+				primaryObjectClass, err = parsedAttr.NormalizedValue.LastStringInSlice()
+				if err != nil {
+					return nil, fmt.Errorf("failed to fetch the primary objectClass: %w", err)
+				}
+			}
+		}
+
+		if attr.Name == "objectGUID" {
+			objectGUID, err = accessors.FirstAs[uuid.UUID](*parsedAttr.InterpretedValue)
+			if err != nil {
+				return nil, fmt.Errorf("type assertion failed: expected uuid.UUID, got %T")
 			}
 		}
 
 		if attr.Name == "nTSecurityDescriptor" {
 			if len(attr.ByteValues) > 0 {
-				sd, err := gontsd.Parse(parsedAttr.LDAPByteValue[0])
+				nTSecurityDescriptor, err = gontsd.Parse(parsedAttr.LDAPByteValue[0])
 				if err != nil {
+					// debug logging
 					fmt.Printf("failed to parse nTSecurityDescriptor for DN %s: %v\n", entry.DN, err)
-				} else {
-					nTSecurityDescriptor = sd
 				}
 			}
 		}
@@ -373,8 +304,9 @@ func (ad *ActiveDirectoryInstance) ParseLDAPAttributeValues(entry *ldap.Entry) (
 		objectAttributes[attr.Name] = parsedAttr
 	}
 
-	return ActiveDirectoryObject{
+	return &ActiveDirectoryObject{
 		DN:                   entry.DN,
+		ObjectGUID:           objectGUID,
 		PrimaryObjectClass:   primaryObjectClass,
 		NTSecurityDescriptor: nTSecurityDescriptor,
 		AttributeValues:      objectAttributes,
@@ -405,8 +337,66 @@ func (ad *ActiveDirectoryInstance) FetchEntries(filter string) ([]ActiveDirector
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse LDAP entry %q: %w", entry.DN, err)
 		}
-		adObjects = append(adObjects, adObject)
+		adObjects = append(adObjects, *adObject)
 	}
 
 	return adObjects, nil
+}
+
+func PrintToConsole(adInstance *ActiveDirectoryInstance, entries []*ldap.Entry) error {
+	// TODO: refactor to be more generic for generalized debugging?
+	for _, entry := range entries {
+		adObject, err := adInstance.ParseLDAPAttributeValues(entry)
+		if err != nil {
+			log.Printf("Skipping entry for DN %s: %v", entry.DN, err)
+			continue
+		}
+
+		fmt.Println(strings.Repeat("─", 80))
+		fmt.Printf("DN: %s\n", adObject.DN)
+		fmt.Println(strings.Repeat("─", 80))
+
+		sortedAttrNames := make([]string, 0, len(adObject.AttributeValues))
+		for name := range adObject.AttributeValues {
+			sortedAttrNames = append(sortedAttrNames, name)
+		}
+		sort.Strings(sortedAttrNames)
+
+		for i, attrName := range sortedAttrNames {
+			attr := adObject.AttributeValues[attrName]
+			prefix := "├───"
+			if i == len(sortedAttrNames)-1 {
+				prefix = "└───"
+			}
+
+			schema := attr.Schema
+			fmt.Printf("%sAttribute: %s (%s)\n", prefix, schema.AttributeName, schema.AttributeLDAPName)
+			fmt.Printf("    ├──AttributeID: %s\n", schema.AttributeID)
+			fmt.Printf("    ├──AttributeSyntax: %s\n", schema.AttributeSyntax)
+			fmt.Printf("    ├──AttributeOMSyntax: %s\n", schema.AttributeOMSyntax)
+			fmt.Printf("    ├──SchemaSyntax: %s\n", schema.AttributeFieldType.SyntaxName)
+			fmt.Printf("    ├──GoType: %s\n", schema.AttributeFieldType.GoType.String())
+
+			// Display the values
+			asStr, err := attr.AsStringSlice()
+			if err != nil {
+				log.Printf("[error: %v]", err)
+			}
+
+			if len(asStr) == 0 {
+				fmt.Println("    └──Value: [No values]")
+				continue
+			}
+
+			for j, val := range asStr {
+				valuePrefix := "    ├──Value:"
+				if j == len(asStr)-1 {
+					valuePrefix = "    └──Value:"
+				}
+
+				fmt.Printf("%s %v\n", valuePrefix, val)
+			}
+		}
+	}
+	return nil
 }

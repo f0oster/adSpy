@@ -7,6 +7,7 @@ import (
 	"f0oster/adspy/diff"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/go-ldap/ldap/v3"
@@ -78,8 +79,17 @@ func rollbackOrCommit(tx pgx.Tx, err *error) {
 	}
 }
 
-func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInstance, entries []*ldap.Entry) error {
-	tx, err := db.ConnectionPool.Begin(db.ctx)
+func (db *Database) WriteObjects(ctx context.Context, adInstance *activedirectory.ActiveDirectoryInstance, entries []*ldap.Entry) error {
+	conn, err := db.ConnectionPool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel:   pgx.ReadCommitted,
+		AccessMode: pgx.ReadWrite,
+	})
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -114,12 +124,7 @@ func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInst
 			continue
 		}
 
-		// Fetch and format objectGUID
-		objectGUID, err := adObject.GetObjectGUID()
-		if err != nil {
-			log.Printf("Failed to get objectGUID for DN %s: %v\n", entry.DN, err)
-			continue
-		}
+		objectGUID := adObject.ObjectGUID
 
 		stringObjectID, err := adObject.AttributeValues["objectGUID"].AsString()
 		if err != nil {
@@ -156,7 +161,7 @@ func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInst
 
 		var currentVersion *uuid.UUID
 		err = tx.QueryRow(
-			db.ctx,
+			ctx,
 			insertObjectQuery,
 			objectGUID,
 			objectCategory,
@@ -172,7 +177,7 @@ func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInst
 		if currentVersion == nil {
 			newVersionID := uuid.New()
 			_, err = tx.Exec(
-				db.ctx,
+				ctx,
 				insertObjectVersionQuery,
 				newVersionID,
 				objectGUID,
@@ -184,7 +189,7 @@ func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInst
 				return fmt.Errorf("failed to insert initial version: %w", err)
 			}
 
-			_, err = tx.Exec(db.ctx, updateObjectVersionQuery, newVersionID, objectGUID)
+			_, err = tx.Exec(ctx, updateObjectVersionQuery, newVersionID, objectGUID)
 			if err != nil {
 				return fmt.Errorf("failed to update current version: %w", err)
 			}
@@ -195,7 +200,7 @@ func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInst
 
 		// Load existing snapshot
 		var existingJSON []byte
-		err = tx.QueryRow(db.ctx, `
+		err = tx.QueryRow(ctx, `
 			SELECT attributes_snapshot
 			FROM ObjectVersions
 			WHERE version_id = $1
@@ -217,7 +222,7 @@ func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInst
 
 		newVersionID := uuid.New()
 		_, err = tx.Exec(
-			db.ctx,
+			ctx,
 			insertObjectVersionQuery,
 			newVersionID,
 			objectGUID,
@@ -229,7 +234,7 @@ func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInst
 			return fmt.Errorf("failed to insert changed version: %w", err)
 		}
 
-		_, err = tx.Exec(db.ctx, updateObjectVersionQuery, newVersionID, objectGUID)
+		_, err = tx.Exec(ctx, updateObjectVersionQuery, newVersionID, objectGUID)
 		if err != nil {
 			return fmt.Errorf("failed to update current version: %w", err)
 		}
@@ -262,7 +267,7 @@ func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInst
 			`
 
 			_, err = tx.Exec(
-				db.ctx,
+				ctx,
 				insertAttributeChangeQuery,
 				uuid.New(),   // change_id
 				objectGUID,   // object_id
@@ -276,6 +281,49 @@ func (db *Database) WriteObjects(adInstance *activedirectory.ActiveDirectoryInst
 				return fmt.Errorf("insert AttributeChange for %s: %w", ch.Name, err)
 			}
 		}
+	}
+
+	return nil
+}
+
+func chunk(entries []*ldap.Entry, chunkSize int) [][]*ldap.Entry {
+	var chunks [][]*ldap.Entry
+	for i := 0; i < len(entries); i += chunkSize {
+		end := i + chunkSize
+		if end > len(entries) {
+			end = len(entries)
+		}
+		chunks = append(chunks, entries[i:end])
+	}
+	return chunks
+}
+
+func (db *Database) WriteObjectsConcurrent(adInstance *activedirectory.ActiveDirectoryInstance, entries []*ldap.Entry) error {
+	chunks := chunk(entries, 100) // split 1000 entries into 10 chunks of 100
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(chunks))
+
+	for _, chunk := range chunks {
+		wg.Add(1)
+		go func(entries []*ldap.Entry) {
+			defer wg.Done()
+
+			// Derive context
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			// Process all entries in this chunk
+			db.WriteObjects(ctx, adInstance, entries)
+
+		}(chunk)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Return first error (if any)
+	for err := range errChan {
+		return err
 	}
 
 	return nil

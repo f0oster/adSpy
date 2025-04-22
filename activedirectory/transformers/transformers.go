@@ -115,7 +115,16 @@ func (t ADGuidFormatter) Normalize(values [][]byte) ([]string, error) {
 }
 
 func (t ADGuidFormatter) Interpret(values [][]byte) (interface{}, error) {
-	return adGuidToRFC4122Uuid(values)
+	uuids, err := adGuidToRFC4122Uuid(values)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]interface{}, len(uuids))
+	for i, u := range uuids {
+		result[i] = u
+	}
+	return result, nil
 }
 
 type ADFiletimeFormatter struct{}
