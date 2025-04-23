@@ -27,22 +27,23 @@ func ParseAttribute(
 	}
 	normalized := &accessors.NormalizedValue{Values: normalizedStrings}
 
-	log.Printf("%s %v (%s / %s / %s / SingleValued: %v): %s",
+	/*
+		log.Printf("%s %v (%s / %s / %s / SingleValued: %v): %s",
 
-		attr.Name,
-		normalizedStrings,
-		attributeSchema.AttributeFieldType.SyntaxName,
-		attributeSchema.AttributeSyntax,
-		attributeSchema.AttributeOMSyntax,
-		attributeSchema.AttributeIsSingleValued,
-		attributeSchema.AttributeFieldType.GoType.String(),
-	)
-
+			attr.Name,
+			normalizedStrings,
+			attributeSchema.AttributeFieldType.SyntaxName,
+			attributeSchema.AttributeSyntax,
+			attributeSchema.AttributeOMSyntax,
+			attributeSchema.AttributeIsSingleValued,
+			attributeSchema.AttributeFieldType.GoType.String(),
+		)
+	*/
 	// --- Interpret ---
 	interpreted := &accessors.InterpretedValue{}
 	interpretedVal, interpErr := fieldType.Interpreter.Interpret(byteValues)
 	if interpErr != nil {
-		log.Printf("Failed to interpret %s: %v", attr.Name, interpErr)
+		// log.Printf("Failed to interpret %s: %v", attr.Name, interpErr)
 	} else {
 		switch v := interpretedVal.(type) {
 		case []interface{}:

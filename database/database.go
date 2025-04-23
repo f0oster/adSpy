@@ -139,12 +139,12 @@ func (db *Database) WriteObjects(ctx context.Context, adInstance *activedirector
 			continue
 		}
 
-		objectSID, ok := adObject.GetNormalizedAttribute("objectSid")
-		if ok {
-			log.Printf("ObjectSID: %s (%s)\n", objectSID, objectCategory)
-		} else {
-			log.Printf("Failed to get objectSID for DN %s (%s)\n", entry.DN, objectCategory)
-		}
+		// objectSID, ok := adObject.GetNormalizedAttribute("objectSid")
+		// if ok {
+		// 	log.Printf("ObjectSID: %s (%s)\n", objectSID, objectCategory)
+		// } else {
+		// 	log.Printf("Failed to get objectSID for DN %s (%s)\n", entry.DN, objectCategory)
+		// }
 
 		// Snapshot as map[string]interface{} (preserving []string where appropriate)
 		attrSnapshot := make(map[string]interface{})
@@ -216,7 +216,7 @@ func (db *Database) WriteObjects(ctx context.Context, adInstance *activedirector
 
 		changed := diff.FindChanges(existing, attrSnapshot)
 		if len(changed) == 0 {
-			fmt.Println("No changes detected")
+			// fmt.Println("No changes detected")
 			continue
 		}
 
@@ -239,9 +239,8 @@ func (db *Database) WriteObjects(ctx context.Context, adInstance *activedirector
 			return fmt.Errorf("failed to update current version: %w", err)
 		}
 
-		log.Printf("+++Updated object (%s) for DN %s", stringObjectID, entry.DN)
 		for _, ch := range changed {
-			log.Printf("+++Attr change: %s: %v -> %v", ch.Name, ch.Old, ch.New)
+			log.Printf("   +++ Attr change for object (%s) DN: %s - %s: %v -> %v", stringObjectID, entry.DN, ch.Name, ch.Old, ch.New)
 
 			// Marshal old and new values to JSONB
 			oldJSON, err := json.Marshal(ch.Old)

@@ -32,8 +32,8 @@ func (t SimpleStringFormatter) transform(values [][]byte) ([]string, error) {
 	result := make([]string, len(values))
 	for i, b := range values {
 		if !utf8.Valid(b) {
-			fmt.Println("warning: [SimpleStringFormatter] transform performed base64 encode - data was a binary blob and not a valid utf8 string")
-			result[i] = base64.StdEncoding.EncodeToString(b)
+			return nil, fmt.Errorf("warning: [SimpleStringFormatter] transform performed base64 encode - data was a binary blob and not a valid utf8 string")
+			// result[i] = base64.StdEncoding.EncodeToString(b)
 		} else {
 			result[i] = string(b)
 		}
