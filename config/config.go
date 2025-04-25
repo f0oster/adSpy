@@ -9,11 +9,13 @@ import (
 )
 
 type ADSpyConfiguration struct {
-	BaseDN   string
-	DcFQDN   string
-	Username string
-	Password string
-	PageSize uint32
+	BaseDN        string
+	DcFQDN        string
+	Username      string
+	Password      string
+	ManagementDsn string
+	AdSpyDsn      string
+	PageSize      uint32
 }
 
 func LoadEnvConfig(configName string) ADSpyConfiguration {
@@ -26,6 +28,9 @@ func LoadEnvConfig(configName string) ADSpyConfiguration {
 	dcFQDN := string(os.Getenv("LDAP_DCFQDN"))
 	username := string(os.Getenv("LDAP_USERNAME"))
 	password := string(os.Getenv("LDAP_PASSWORD"))
+	managementDsn := string(os.Getenv("DB_MANAGEMENT_DSN"))
+	adSpyDsn := string(os.Getenv("DB_ADSPY_DSN"))
+
 	pageSize, err := strconv.ParseUint(os.Getenv("LDAP_PAGESIZE"), 10, 32)
 
 	if err != nil {
@@ -33,11 +38,13 @@ func LoadEnvConfig(configName string) ADSpyConfiguration {
 	}
 
 	return ADSpyConfiguration{
-		BaseDN:   baseDN,
-		DcFQDN:   dcFQDN,
-		Username: username,
-		Password: password,
-		PageSize: uint32(pageSize),
+		BaseDN:        baseDN,
+		DcFQDN:        dcFQDN,
+		Username:      username,
+		Password:      password,
+		ManagementDsn: managementDsn,
+		AdSpyDsn:      adSpyDsn,
+		PageSize:      uint32(pageSize),
 	}
 
 }

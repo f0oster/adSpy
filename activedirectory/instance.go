@@ -10,25 +10,48 @@ import (
 	"f0oster/adspy/activedirectory/ldaphelpers"
 	"f0oster/adspy/activedirectory/schema"
 	"f0oster/adspy/activedirectory/schema/accessors"
+	"f0oster/adspy/config"
 
 	"github.com/f0oster/gontsd"
 	"github.com/go-ldap/ldap/v3"
 	"github.com/google/uuid"
 )
 
-// TODO: CLean / Refactor - separate related functionality into their own files
+// TODO: Separate related functionality into their own files
+// TODO: Separate exported types (ie: PesistableADObject?) to a model package
+func NewActiveDirectoryInstance(config config.ADSpyConfiguration) (*ActiveDirectoryInstance, error) {
 
-func NewActiveDirectoryInstance(baseDn string, domainControllerDn string, pageSize uint32) *ActiveDirectoryInstance {
-	return &ActiveDirectoryInstance{
-		BaseDn:               baseDn,
-		DomainControllerFQDN: domainControllerDn,
-		PageSize:             pageSize,
+	ad := &ActiveDirectoryInstance{
+		BaseDn:               config.BaseDN,
+		DomainControllerFQDN: config.DcFQDN,
+		PageSize:             config.PageSize,
 		SchemaRegistry:       schema.NewSchemaRegistry(),
 	}
+
+	ok := ad.connect(config.Username, config.Password)
+
+	if !ok {
+		return nil, fmt.Errorf("failed to connect to the Active Directory Domain")
+	}
+
+	err := ad.loadSchema()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to load schema: %w", err)
+	}
+
+	err = ad.fetchDomainGUID()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch DomainGUID: %w", err)
+	}
+
+	return ad, nil
+
 }
 
 // Connect to the Active Directory Domain Controller
-func (ad *ActiveDirectoryInstance) Connect(username, password string) bool {
+func (ad *ActiveDirectoryInstance) connect(username, password string) bool {
 	var err error
 
 	bindString := fmt.Sprintf("ldap://%s:389", ad.DomainControllerFQDN)
@@ -56,8 +79,8 @@ func (ad *ActiveDirectoryInstance) Connect(username, password string) bool {
 	return true
 }
 
-// Load AttributeSchema data dynamically
-func (ad *ActiveDirectoryInstance) LoadSchema() error {
+// Load AttributeSchema data dynamically from the Schema partition
+func (ad *ActiveDirectoryInstance) loadSchema() error {
 
 	schemaBaseDN := "CN=Schema,CN=Configuration," + ad.BaseDn
 
@@ -106,7 +129,7 @@ func (ad *ActiveDirectoryInstance) LoadSchema() error {
 			AttributeFieldType:      *attributeFieldType,
 			AttributeIsSingleValued: singleValued,
 		}
-		fmt.Printf("Adding type: %s\n", ldapDisplayName)
+		// fmt.Printf("Adding type: %s\n", ldapDisplayName) // for debugging
 		ad.SchemaRegistry.RegisterAttributeSchema(&schemaEntry)
 	}
 
@@ -145,26 +168,41 @@ func (ad *ActiveDirectoryInstance) FetchHighestUSN() error {
 	return nil
 }
 
-// create the LDAP_SERVER_SD_FLAGS_OID extended control to return ntSecurityDescriptor
-func CreateSDFlagsControl() ldap.Control {
-	// Construct the BER-encoded sequence for the SD flags
-	// [0x30 0x03 0x02 0x01 0x07] for SD flags
-	// https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ldap/ldap-server-sd-flags-oid
-	// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/3888c2b7-35b9-45b7-afeb-b772aa932dd0
-	// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/3c5e87db-4728-4f29-b164-01dd7d7391ea
-	// value := []byte{0x30, 0x03, 0x02, 0x01, 0x07}
+func (ad *ActiveDirectoryInstance) fetchDomainGUID() error {
+	domainGUIDSearchRequest := ldap.NewSearchRequest(
+		ad.BaseDn,
+		ldap.ScopeBaseObject,
+		ldap.NeverDerefAliases,
+		0, 0, false,
+		"(objectClass=*)",
+		[]string{"objectGUID"},
+		nil,
+	)
 
-	return ldap.NewControlString("1.2.840.113556.1.4.801", true, fmt.Sprintf("%c%c%c%c%c", 48, 3, 2, 1, 7))
+	domainGUIDSearchResults, err := ad.ldapConnection.Search(domainGUIDSearchRequest)
+	if err != nil {
+		return fmt.Errorf("failed to fetch domainGUID from Root DSE: %v", err)
+	}
+
+	adObject, err := ad.ParseLDAPAttributeValues(domainGUIDSearchResults.Entries[0])
+	if err != nil {
+		return fmt.Errorf("failed to fetch domain DN object details from Root DSE: %v", err)
+	}
+
+	ad.DomainId = adObject.ObjectGUID
+	fmt.Printf("Domain GUID: %s", adObject.ObjectGUID.String())
+
+	return nil
 }
 
 // perform a paged LDAP query and callback per page
-func (ad *ActiveDirectoryInstance) FetchPagedEntriesWithCallback(
-	filter string, pageSize uint32, processPage func(adInstance *ActiveDirectoryInstance, entries []*ldap.Entry) error,
+func (ad *ActiveDirectoryInstance) ForEachLDAPPage(
+	filter string, pageSize uint32, pageHandlerCallback func(adInstance *ActiveDirectoryInstance, entries []*ldap.Entry) error,
 ) error {
 
 	log.Println("LDAPFilter:", filter)
 
-	sdFlagsControl := CreateSDFlagsControl()
+	sdFlagsControl := ldaphelpers.CreateSDFlagsControl()
 	pageControl := ldap.NewControlPaging(pageSize)
 	pageRequest := ldap.NewSearchRequest(
 		ad.BaseDn,
@@ -184,7 +222,7 @@ func (ad *ActiveDirectoryInstance) FetchPagedEntriesWithCallback(
 		}
 
 		// Process the current page of entries
-		if err := processPage(ad, searchResults.Entries); err != nil {
+		if err := pageHandlerCallback(ad, searchResults.Entries); err != nil {
 			return fmt.Errorf("processing page failed: %w", err)
 		}
 
@@ -287,7 +325,7 @@ func (ad *ActiveDirectoryInstance) ParseLDAPAttributeValues(entry *ldap.Entry) (
 		if attr.Name == "objectGUID" {
 			objectGUID, err = accessors.FirstAs[uuid.UUID](*parsedAttr.InterpretedValue)
 			if err != nil {
-				return nil, fmt.Errorf("type assertion failed: expected uuid.UUID, got %T")
+				return nil, fmt.Errorf("type assertion failed: expected uuid.UUID, got %T", err)
 			}
 		}
 
@@ -314,7 +352,7 @@ func (ad *ActiveDirectoryInstance) ParseLDAPAttributeValues(entry *ldap.Entry) (
 }
 
 func (ad *ActiveDirectoryInstance) FetchEntries(filter string) ([]ActiveDirectoryObject, error) {
-	sdFlagsControl := CreateSDFlagsControl()
+	sdFlagsControl := ldaphelpers.CreateSDFlagsControl()
 
 	ldapSearch := ldap.NewSearchRequest(
 		ad.BaseDn,

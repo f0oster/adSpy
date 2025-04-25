@@ -43,12 +43,9 @@ func (db *Database) Connect() {
 }
 
 // initialize the domain
-func (db *Database) InitalizeDomain(adInstance *activedirectory.ActiveDirectoryInstance) error {
+func (db *Database) InsertDomain(adInstance *activedirectory.ActiveDirectoryInstance) error {
 
-	// TODO: we'll later support loading an existing domain and mapping schema changes, for now, let's just use a static GUID and disregard schema history entirely
-	adInstance.DomainId, _ = uuid.Parse("4ee698a0-e182-45f1-834d-019fd66a1ceb") // for now, use a static domain GUID
-	// adInstance.DomainId = uuid.New()
-
+	// TODO: we'll later support storing and mapping schema changes over time, for now disregard schema history
 	_, err := db.ConnectionPool.Exec(db.ctx, `
 		INSERT INTO domains (domain_id, domain_name, domain_controller, highest_usn, current_usn)
 		VALUES ($1, $2, $3, $4, $5)
@@ -80,6 +77,7 @@ func rollbackOrCommit(tx pgx.Tx, err *error) {
 }
 
 func (db *Database) WriteObjects(ctx context.Context, adInstance *activedirectory.ActiveDirectoryInstance, entries []*ldap.Entry) error {
+	// TODO: refactor this mess. parsing shouldn't occur here - we should receive already processed model types here.
 	conn, err := db.ConnectionPool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire connection: %w", err)
@@ -242,7 +240,6 @@ func (db *Database) WriteObjects(ctx context.Context, adInstance *activedirector
 		for _, ch := range changed {
 			log.Printf("   +++ Attr change for object (%s) DN: %s - %s: %v -> %v", stringObjectID, entry.DN, ch.Name, ch.Old, ch.New)
 
-			// Marshal old and new values to JSONB
 			oldJSON, err := json.Marshal(ch.Old)
 			if err != nil {
 				return fmt.Errorf("marshal old_value for %s: %w", ch.Name, err)
@@ -297,8 +294,8 @@ func chunk(entries []*ldap.Entry, chunkSize int) [][]*ldap.Entry {
 	return chunks
 }
 
-func (db *Database) WriteObjectsConcurrent(adInstance *activedirectory.ActiveDirectoryInstance, entries []*ldap.Entry) error {
-	chunks := chunk(entries, 100) // split 1000 entries into 10 chunks of 100
+func (db *Database) DispatchObjectWrites(adInstance *activedirectory.ActiveDirectoryInstance, entries []*ldap.Entry) error {
+	chunks := chunk(entries, 100)
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(chunks))
 
@@ -307,11 +304,9 @@ func (db *Database) WriteObjectsConcurrent(adInstance *activedirectory.ActiveDir
 		go func(entries []*ldap.Entry) {
 			defer wg.Done()
 
-			// Derive context
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			// Process all entries in this chunk
 			db.WriteObjects(ctx, adInstance, entries)
 
 		}(chunk)
@@ -320,101 +315,9 @@ func (db *Database) WriteObjectsConcurrent(adInstance *activedirectory.ActiveDir
 	wg.Wait()
 	close(errChan)
 
-	// Return first error (if any)
 	for err := range errChan {
 		return err
 	}
 
 	return nil
-}
-
-func ResetDatabase(ctx context.Context) {
-
-	managementDsn := "postgres://postgres:example@dockerprdap01:5432/postgres"
-
-	managementPool, err := pgxpool.New(context.Background(), managementDsn)
-	if err != nil {
-		fmt.Printf("Unable to connect: %v\n", err)
-		return
-	}
-	defer managementPool.Close()
-
-	_, err = managementPool.Exec(ctx, "DROP DATABASE IF EXISTS adspy")
-	if err != nil {
-		log.Fatalf("Failed to drop database: %v", err)
-	}
-	fmt.Println("Database 'adspy' dropped successfully (if it existed).")
-
-	_, err = managementPool.Exec(ctx, "CREATE DATABASE adspy")
-	if err != nil {
-		log.Fatalf("Failed to create database: %v", err)
-	}
-	fmt.Println("Database 'adspy' created successfully.")
-
-	managementPool.Close()
-
-	adSpyDsn := "postgres://postgres:example@dockerprdap01:5432/adspy"
-
-	adSpyPool, err := pgxpool.New(context.Background(), adSpyDsn)
-	if err != nil {
-		fmt.Printf("Unable to connect: %v\n", err)
-		return
-	}
-	defer adSpyPool.Close()
-
-	createTablesSQL := `
-	CREATE TABLE Domains (
-		domain_id UUID PRIMARY KEY,
-		domain_name VARCHAR(255) NOT NULL,
-		schema_metadata JSONB,
-		domain_controller VARCHAR NOT NULL,
-		current_usn BIGINT,
-		highest_usn BIGINT
-	);
-
-	CREATE TABLE Objects (
-	    object_id UUID PRIMARY KEY,
-	    object_type VARCHAR(255) NOT NULL,
-		distinguishedName VARCHAR(255),
-	    current_version UUID,
-	    domain_id UUID,
-	    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	    deleted_at TIMESTAMP
-	);
-
-	CREATE TABLE ObjectVersions (
-	    version_id UUID PRIMARY KEY NOT NULL,
-	    object_id UUID NOT NULL,
-	    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	    attributes_snapshot JSONB NOT NULL,
-	    modified_by VARCHAR(255)
-	);
-
-	CREATE TABLE AttributeChanges (
-	    change_id UUID PRIMARY KEY,
-	    object_id UUID NOT NULL,
-	    attribute_name VARCHAR(255) NOT NULL,
-	    old_value JSONB,
-	    new_value JSONB,
-	    version_id UUID NOT NULL,
-	    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-	);
-
-	ALTER TABLE Objects
-	ADD CONSTRAINT fk_objects_current_version FOREIGN KEY (current_version) REFERENCES ObjectVersions(version_id),
-	ADD CONSTRAINT fk_objects_domain_id FOREIGN KEY (domain_id) REFERENCES Domains(domain_id);
-
-	ALTER TABLE ObjectVersions
-	ADD CONSTRAINT fk_object_versions_object_id FOREIGN KEY (object_id) REFERENCES Objects(object_id);
-
-	ALTER TABLE AttributeChanges
-	ADD CONSTRAINT fk_attribute_changes_object_id FOREIGN KEY (object_id) REFERENCES Objects(object_id),
-	ADD CONSTRAINT fk_attribute_changes_version_id FOREIGN KEY (version_id) REFERENCES ObjectVersions(version_id);
-	`
-	_, err = adSpyPool.Exec(ctx, createTablesSQL)
-	if err != nil {
-		log.Fatalf("Failed to create tables: %v", err)
-	}
-	fmt.Println("Tables created successfully.")
 }
