@@ -2,7 +2,7 @@ module f0oster/adspy
 
 go 1.24.1
 
-require github.com/go-ldap/ldap/v3 v3.4.11
+require github.com/go-ldap/ldap/v3 v3.4.12
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
