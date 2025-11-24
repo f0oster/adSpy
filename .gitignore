@@ -7,7 +7,12 @@
 *.dll
 *.so
 *.dylib
+
+# Environment files (includes docker/.env)
 *.env
+
+# Docker local overrides
+docker/docker-compose.override.yml
 
 # Test binary, built with `go test -c`
 *.test

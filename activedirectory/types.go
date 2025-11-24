@@ -14,6 +14,7 @@ type ActiveDirectoryInstance struct {
 	PageSize             uint32
 	HighestCommittedUSN  int64
 	SchemaRegistry       *schema.SchemaRegistry
+	parser               *Parser // Internal parser for LDAP entries
 	ldapConnection       *ldap.Conn
 	DomainId             uuid.UUID
 }

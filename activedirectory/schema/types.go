@@ -7,11 +7,10 @@ import (
 )
 
 type AttributeFieldType struct {
-	GoType        reflect.Type
-	SyntaxName    string
-	Normalizer    transformers.Normalizer
-	Interpreter   transformers.Interpreter
-	CustomHandler func(attr *AttributeValue) error
+	GoType      reflect.Type
+	SyntaxName  string
+	Normalizer  transformers.Normalizer
+	Interpreter transformers.Interpreter
 }
 
 type AttributeSchema struct {

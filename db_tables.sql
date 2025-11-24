@@ -3,18 +3,20 @@ CREATE TABLE Domains (
     domain_id UUID PRIMARY KEY,
     domain_name VARCHAR(255) NOT NULL,
     schema_metadata JSONB,
-    domain_controller VARCHAR NOT NULL
+    domain_controller VARCHAR NOT NULL,
     current_usn BIGINT,
-    highest_usn BIGINT,
+    highest_usn BIGINT
 );
 
 -- 2. Objects Table
 CREATE TABLE Objects (
     object_id UUID PRIMARY KEY,
     object_type VARCHAR(255) NOT NULL,
+    distinguishedName VARCHAR(255),
     current_version UUID,
     domain_id UUID,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP
 );
 

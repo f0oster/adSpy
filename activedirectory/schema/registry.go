@@ -13,8 +13,8 @@ import (
 
 type SchemaRegistry struct {
 	attributeSchemas map[string]*AttributeSchema
-	typeMap          map[string]map[string]*AttributeFieldType // syntax → omsyntax
-	attributeHooks   map[string]*AttributeFieldType            // ldapDisplayName → handler
+	typeMap          map[string]map[string]*AttributeFieldType // syntax -> omsyntax
+	attributeHooks   map[string]*AttributeFieldType            // ldapDisplayName -> handler
 }
 
 func NewSchemaRegistry() *SchemaRegistry {
@@ -133,6 +133,13 @@ func (r *SchemaRegistry) registerAttributeOverrides() {
 	})
 
 	r.OverrideAttribute("tokenGroups", &AttributeFieldType{
+		GoType:      reflect.TypeOf(""),
+		SyntaxName:  "SID",
+		Interpreter: transformers.SIDFormatter{},
+		Normalizer:  transformers.SIDFormatter{},
+	})
+
+	r.OverrideAttribute("msRTCSIP-OriginatorSid", &AttributeFieldType{
 		GoType:      reflect.TypeOf(""),
 		SyntaxName:  "SID",
 		Interpreter: transformers.SIDFormatter{},

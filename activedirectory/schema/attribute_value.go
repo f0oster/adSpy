@@ -22,13 +22,3 @@ func NewAttributeValue(
 		Schema:           schema,
 	}
 }
-
-// AsString returns the normalized value as a single string.
-func (a *AttributeValue) AsString() (string, error) {
-	return a.NormalizedValue.AsString()
-}
-
-// AsStringSlice returns the normalized value as a string slice.
-func (a *AttributeValue) AsStringSlice() ([]string, error) {
-	return a.NormalizedValue.AsStringSlice()
-}
