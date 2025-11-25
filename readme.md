@@ -38,6 +38,7 @@ git clone https://github.com/f0oster/adSpy
 cd adSpy
 go build -o adSpy
 ./adSpy
+```
 
 ## Configuration
 
