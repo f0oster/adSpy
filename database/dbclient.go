@@ -5,18 +5,23 @@ import (
 	"fmt"
 	"time"
 
+	"f0oster/adspy/database/sqlcgen"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type DBClient struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	queries *sqlcgen.Queries
 }
 
 func NewDBClient(pool *pgxpool.Pool) *DBClient {
 	return &DBClient{
-		pool: pool,
+		pool:    pool,
+		queries: sqlcgen.New(pool),
 	}
 }
 
@@ -29,12 +34,19 @@ func (r *DBClient) UpsertObject(
 	dn string,
 	domainID uuid.UUID,
 ) (*uuid.UUID, error) {
-	var currentVersion *uuid.UUID
-	err := tx.QueryRow(ctx, UpsertObject, objectID, objectType, dn, domainID).Scan(&currentVersion)
+	txQueries := r.queries.WithTx(tx)
+
+	currentVersion, err := txQueries.UpsertObject(ctx, sqlcgen.UpsertObjectParams{
+		ObjectID:          uuidToPgtype(objectID),
+		ObjectType:        objectType,
+		Distinguishedname: pgtype.Text{String: dn, Valid: true},
+		DomainID:          uuidToPgtype(domainID),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("upsert object query failed: %w", err)
 	}
-	return currentVersion, nil
+
+	return pgtypeToUUID(currentVersion), nil
 }
 
 func (r *DBClient) GetVersionSnapshot(
@@ -42,8 +54,9 @@ func (r *DBClient) GetVersionSnapshot(
 	tx pgx.Tx,
 	versionID uuid.UUID,
 ) ([]byte, error) {
-	var snapshotJSON []byte
-	err := tx.QueryRow(ctx, GetPreviousSnapshot, versionID).Scan(&snapshotJSON)
+	txQueries := r.queries.WithTx(tx)
+
+	snapshotJSON, err := txQueries.GetPreviousSnapshot(ctx, uuidToPgtype(versionID))
 	if err != nil {
 		return nil, fmt.Errorf("get version snapshot query failed: %w", err)
 	}
@@ -59,13 +72,15 @@ func (r *DBClient) CreateVersion(
 	attributesJSON []byte,
 	modifiedBy string,
 ) error {
-	_, err := tx.Exec(ctx, InsertVersion,
-		versionID,
-		objectID,
-		timestamp,
-		attributesJSON,
-		modifiedBy,
-	)
+	txQueries := r.queries.WithTx(tx)
+
+	err := txQueries.InsertVersion(ctx, sqlcgen.InsertVersionParams{
+		VersionID:          uuidToPgtype(versionID),
+		ObjectID:           uuidToPgtype(objectID),
+		Timestamp:          pgtype.Timestamp{Time: timestamp, Valid: true},
+		AttributesSnapshot: attributesJSON,
+		ModifiedBy:         pgtype.Text{String: modifiedBy, Valid: true},
+	})
 	if err != nil {
 		return fmt.Errorf("create version query failed: %w", err)
 	}
@@ -78,7 +93,12 @@ func (r *DBClient) UpdateCurrentVersion(
 	versionID uuid.UUID,
 	objectID uuid.UUID,
 ) error {
-	_, err := tx.Exec(ctx, UpdateCurrentVersion, versionID, objectID)
+	txQueries := r.queries.WithTx(tx)
+
+	err := txQueries.UpdateCurrentVersion(ctx, sqlcgen.UpdateCurrentVersionParams{
+		CurrentVersion: uuidToPgtype(versionID),
+		ObjectID:       uuidToPgtype(objectID),
+	})
 	if err != nil {
 		return fmt.Errorf("update current version query failed: %w", err)
 	}
@@ -88,17 +108,25 @@ func (r *DBClient) UpdateCurrentVersion(
 func (r *DBClient) RecordAttributeChange(
 	ctx context.Context,
 	tx pgx.Tx,
-	change *ChangeRecord,
+	changeID uuid.UUID,
+	objectID uuid.UUID,
+	attributeName string,
+	oldValue []byte,
+	newValue []byte,
+	versionID uuid.UUID,
+	timestamp time.Time,
 ) error {
-	_, err := tx.Exec(ctx, InsertAttributeChange,
-		change.ChangeID,
-		change.ObjectID,
-		change.AttributeName,
-		change.OldValue,
-		change.NewValue,
-		change.VersionID,
-		change.Timestamp,
-	)
+	txQueries := r.queries.WithTx(tx)
+
+	err := txQueries.InsertAttributeChange(ctx, sqlcgen.InsertAttributeChangeParams{
+		ChangeID:      uuidToPgtype(changeID),
+		ObjectID:      uuidToPgtype(objectID),
+		AttributeName: attributeName,
+		OldValue:      oldValue,
+		NewValue:      newValue,
+		VersionID:     uuidToPgtype(versionID),
+		Timestamp:     pgtype.Timestamp{Time: timestamp, Valid: true},
+	})
 	if err != nil {
 		return fmt.Errorf("record attribute change query failed: %w", err)
 	}
@@ -123,4 +151,38 @@ func (r *DBClient) CommitTx(ctx context.Context, tx pgx.Tx) error {
 func (r *DBClient) RollbackTx(ctx context.Context, tx pgx.Tx) error {
 	// Rollback returns an error if transaction is already committed/rolled back
 	return tx.Rollback(ctx)
+}
+
+func (r *DBClient) InsertDomain(
+	ctx context.Context,
+	domainID uuid.UUID,
+	domainName string,
+	domainController string,
+	highestUSN int64,
+) error {
+	err := r.queries.InsertDomain(ctx, sqlcgen.InsertDomainParams{
+		DomainID:         uuidToPgtype(domainID),
+		DomainName:       domainName,
+		DomainController: domainController,
+		HighestUsn:       pgtype.Int8{Int64: highestUSN, Valid: true},
+		CurrentUsn:       pgtype.Int8{Int64: 0, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("insert domain failed: %w", err)
+	}
+	return nil
+}
+
+// Helper functions for UUID conversion
+
+func uuidToPgtype(id uuid.UUID) pgtype.UUID {
+	return pgtype.UUID{Bytes: id, Valid: true}
+}
+
+func pgtypeToUUID(id pgtype.UUID) *uuid.UUID {
+	if !id.Valid {
+		return nil
+	}
+	result := uuid.UUID(id.Bytes)
+	return &result
 }

@@ -197,17 +197,16 @@ func (s *Service) updateIfChanged(
 			return fmt.Errorf("failed to marshal new value for %s: %w", change.Name, err)
 		}
 
-		changeRecord := &database.ChangeRecord{
-			ChangeID:      uuid.New(),
-			ObjectID:      snap.ObjectGUID,
-			AttributeName: change.Name,
-			OldValue:      oldJSON,
-			NewValue:      newJSON,
-			VersionID:     newVersionID,
-			Timestamp:     snap.Timestamp,
-		}
-
-		if err := s.dbClient.RecordAttributeChange(ctx, tx, changeRecord); err != nil {
+		if err := s.dbClient.RecordAttributeChange(
+			ctx, tx,
+			uuid.New(),
+			snap.ObjectGUID,
+			change.Name,
+			oldJSON,
+			newJSON,
+			newVersionID,
+			snap.Timestamp,
+		); err != nil {
 			return fmt.Errorf("failed to record attribute change for %s: %w", change.Name, err)
 		}
 

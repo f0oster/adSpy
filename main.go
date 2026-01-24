@@ -21,22 +21,30 @@ func main() {
 
 	ctx := context.Background()
 	database.ResetDatabase(ctx, adSpyConfig.ManagementDsn, adSpyConfig.AdSpyDsn)
-	db := database.NewDatabase(adSpyConfig.AdSpyDsn, adSpyConfig.ManagementDsn, ctx)
-	db.Connect()
+	db := database.NewDatabase(adSpyConfig.AdSpyDsn, adSpyConfig.ManagementDsn)
+	if err := db.Connect(ctx); err != nil {
+		log.Fatalf("failed to connect to database: %v", err)
+	}
+	defer db.Close()
 
 	adInstance, err := activedirectory.NewActiveDirectoryInstance(adSpyConfig)
 	if err != nil {
 		log.Fatalf("failed to initialize Active Directory instance: %v", err)
 	}
 
-	err = db.InsertDomain(adInstance)
+	err = db.Client().InsertDomain(
+		ctx,
+		adInstance.DomainId,
+		adInstance.BaseDn,
+		adInstance.DomainControllerFQDN,
+		adInstance.HighestCommittedUSN,
+	)
 	if err != nil {
 		log.Fatalf("failed to insert domain entry to database: %v", err)
 	}
 
 	snapshotService := snapshot.NewService()
-	dbClient := database.NewDBClient(db.ConnectionPool)
-	versioningService := versioning.NewService(dbClient, snapshotService)
+	versioningService := versioning.NewService(db.Client(), snapshotService)
 
 	log.Println("adSpy initialized - monitoring AD for changes")
 
