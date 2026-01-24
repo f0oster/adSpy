@@ -1,7 +1,6 @@
 CREATE TABLE Domains (
     domain_id UUID PRIMARY KEY,
     domain_name VARCHAR(255) NOT NULL,
-    schema_metadata JSONB,
     domain_controller VARCHAR NOT NULL,
     current_usn BIGINT,
     highest_usn BIGINT
@@ -36,6 +35,20 @@ CREATE TABLE AttributeChanges (
     timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Attribute Schema Registry
+CREATE TABLE AttributeSchemas (
+    object_guid UUID PRIMARY KEY,
+    domain_id UUID NOT NULL,
+    ldap_display_name VARCHAR(255) NOT NULL,
+    attribute_name VARCHAR(255) NOT NULL,
+    attribute_id VARCHAR(255) NOT NULL,
+    attribute_syntax VARCHAR(255) NOT NULL,
+    om_syntax VARCHAR(50) NOT NULL,
+    syntax_name VARCHAR(255),
+    is_single_valued BOOLEAN NOT NULL DEFAULT false
+);
+
+
 -- Foreign key constraints
 ALTER TABLE Objects
 ADD CONSTRAINT fk_objects_current_version FOREIGN KEY (current_version) REFERENCES ObjectVersions(version_id),
@@ -48,6 +61,9 @@ ALTER TABLE AttributeChanges
 ADD CONSTRAINT fk_attribute_changes_object_id FOREIGN KEY (object_id) REFERENCES Objects(object_id),
 ADD CONSTRAINT fk_attribute_changes_version_id FOREIGN KEY (version_id) REFERENCES ObjectVersions(version_id);
 
+ALTER TABLE AttributeSchemas
+ADD CONSTRAINT fk_attribute_schemas_domain_id FOREIGN KEY (domain_id) REFERENCES Domains(domain_id);
+
 -- Indexes
 CREATE INDEX idx_objects_domain_id ON Objects(domain_id);
 CREATE INDEX idx_objects_object_type ON Objects(object_type);
@@ -56,3 +72,4 @@ CREATE INDEX idx_object_versions_timestamp ON ObjectVersions(timestamp);
 CREATE INDEX idx_attribute_changes_object_id ON AttributeChanges(object_id);
 CREATE INDEX idx_attribute_changes_version_id ON AttributeChanges(version_id);
 CREATE INDEX idx_attribute_changes_attribute_name ON AttributeChanges(attribute_name);
+CREATE UNIQUE INDEX idx_attribute_schemas_domain_ldap ON AttributeSchemas(domain_id, ldap_display_name);

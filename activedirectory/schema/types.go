@@ -1,9 +1,12 @@
 package schema
 
 import (
+	"reflect"
+
 	"f0oster/adspy/activedirectory/schema/accessors"
 	"f0oster/adspy/activedirectory/transformers"
-	"reflect"
+
+	"github.com/google/uuid"
 )
 
 type AttributeFieldType struct {
@@ -14,6 +17,7 @@ type AttributeFieldType struct {
 }
 
 type AttributeSchema struct {
+	ObjectGUID              uuid.UUID
 	AttributeName           string
 	AttributeLDAPName       string
 	AttributeID             string

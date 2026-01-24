@@ -43,6 +43,26 @@ func main() {
 		log.Fatalf("failed to insert domain entry to database: %v", err)
 	}
 
+	// Persist AD schema to database
+	schemas := adInstance.SchemaRegistry.GetAllSchemas()
+	for _, s := range schemas {
+		if err := db.Client().UpsertAttributeSchema(
+			ctx,
+			s.ObjectGUID,
+			adInstance.DomainId,
+			s.AttributeLDAPName,
+			s.AttributeName,
+			s.AttributeID,
+			s.AttributeSyntax,
+			s.AttributeOMSyntax,
+			s.AttributeFieldType.SyntaxName,
+			s.AttributeIsSingleValued,
+		); err != nil {
+			log.Fatalf("failed to persist attribute schema: %v", err)
+		}
+	}
+	log.Printf("Persisted %d attribute schemas", len(schemas))
+
 	snapshotService := snapshot.NewService()
 	versioningService := versioning.NewService(db.Client(), snapshotService)
 

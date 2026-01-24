@@ -173,6 +173,35 @@ func (r *DBClient) InsertDomain(
 	return nil
 }
 
+func (r *DBClient) UpsertAttributeSchema(
+	ctx context.Context,
+	objectGUID uuid.UUID,
+	domainID uuid.UUID,
+	ldapDisplayName string,
+	attributeName string,
+	attributeID string,
+	attributeSyntax string,
+	omSyntax string,
+	syntaxName string,
+	isSingleValued bool,
+) error {
+	err := r.queries.UpsertAttributeSchema(ctx, sqlcgen.UpsertAttributeSchemaParams{
+		ObjectGuid:      uuidToPgtype(objectGUID),
+		DomainID:        uuidToPgtype(domainID),
+		LdapDisplayName: ldapDisplayName,
+		AttributeName:   attributeName,
+		AttributeID:     attributeID,
+		AttributeSyntax: attributeSyntax,
+		OmSyntax:        omSyntax,
+		SyntaxName:      pgtype.Text{String: syntaxName, Valid: syntaxName != ""},
+		IsSingleValued:  isSingleValued,
+	})
+	if err != nil {
+		return fmt.Errorf("upsert attribute schema failed: %w", err)
+	}
+	return nil
+}
+
 // Helper functions for UUID conversion
 
 func uuidToPgtype(id uuid.UUID) pgtype.UUID {

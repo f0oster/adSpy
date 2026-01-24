@@ -16,6 +16,7 @@ type Querier interface {
 	InsertDomain(ctx context.Context, arg InsertDomainParams) error
 	InsertVersion(ctx context.Context, arg InsertVersionParams) error
 	UpdateCurrentVersion(ctx context.Context, arg UpdateCurrentVersionParams) error
+	UpsertAttributeSchema(ctx context.Context, arg UpsertAttributeSchemaParams) error
 	UpsertObject(ctx context.Context, arg UpsertObjectParams) (pgtype.UUID, error)
 }
 

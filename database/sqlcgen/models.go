@@ -18,10 +18,21 @@ type Attributechange struct {
 	Timestamp     pgtype.Timestamp `json:"timestamp"`
 }
 
+type Attributeschema struct {
+	ObjectGuid      pgtype.UUID `json:"object_guid"`
+	DomainID        pgtype.UUID `json:"domain_id"`
+	LdapDisplayName string      `json:"ldap_display_name"`
+	AttributeName   string      `json:"attribute_name"`
+	AttributeID     string      `json:"attribute_id"`
+	AttributeSyntax string      `json:"attribute_syntax"`
+	OmSyntax        string      `json:"om_syntax"`
+	SyntaxName      pgtype.Text `json:"syntax_name"`
+	IsSingleValued  bool        `json:"is_single_valued"`
+}
+
 type Domain struct {
 	DomainID         pgtype.UUID `json:"domain_id"`
 	DomainName       string      `json:"domain_name"`
-	SchemaMetadata   []byte      `json:"schema_metadata"`
 	DomainController string      `json:"domain_controller"`
 	CurrentUsn       pgtype.Int8 `json:"current_usn"`
 	HighestUsn       pgtype.Int8 `json:"highest_usn"`

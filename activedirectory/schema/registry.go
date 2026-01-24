@@ -64,6 +64,14 @@ func (r *SchemaRegistry) RegisterAttributeSchema(schema *AttributeSchema) {
 	r.attributeSchemas[schema.AttributeLDAPName] = schema
 }
 
+func (r *SchemaRegistry) GetAllSchemas() []*AttributeSchema {
+	schemas := make([]*AttributeSchema, 0, len(r.attributeSchemas))
+	for _, schema := range r.attributeSchemas {
+		schemas = append(schemas, schema)
+	}
+	return schemas
+}
+
 func (r *SchemaRegistry) registerSchemaSyntax() {
 	// Boolean
 	r.Register("2.5.5.8", "1", reflect.TypeOf(true), transformers.SimpleStringFormatter{}, transformers.SimpleStringFormatter{}, "Boolean")

@@ -9,6 +9,7 @@ import (
 	"f0oster/adspy/config"
 
 	"github.com/go-ldap/ldap/v3"
+	"github.com/google/uuid"
 )
 
 // TODO: Separate related functionality into their own files
@@ -87,7 +88,7 @@ func (ad *ActiveDirectoryInstance) loadSchema() error {
 		ldap.NeverDerefAliases,
 		0, 0, false,
 		"(objectClass=attributeSchema)", // Searching for attributeSchema
-		[]string{"cn", "lDAPDisplayName", "attributeID", "attributeSyntax", "oMSyntax", "isSingleValued"},
+		[]string{"objectGUID", "cn", "lDAPDisplayName", "attributeID", "attributeSyntax", "oMSyntax", "isSingleValued"},
 		nil, // no control
 	)
 
@@ -99,6 +100,12 @@ func (ad *ActiveDirectoryInstance) loadSchema() error {
 
 	// Process the objectAttributes and store schema data
 	for _, entry := range attributesResults.Entries {
+		objectGUIDBytes := entry.GetRawAttributeValue("objectGUID")
+		objectGUID, err := uuid.FromBytes(objectGUIDBytes)
+		if err != nil {
+			return fmt.Errorf("failed to parse objectGUID: %v", err)
+		}
+
 		attributeName := entry.GetAttributeValue("cn")
 		ldapDisplayName := entry.GetAttributeValue("lDAPDisplayName")
 		attributeID := entry.GetAttributeValue("attributeID")
@@ -118,6 +125,7 @@ func (ad *ActiveDirectoryInstance) loadSchema() error {
 		}
 
 		schemaEntry := schema.AttributeSchema{
+			ObjectGUID:              objectGUID,
 			AttributeName:           attributeName,
 			AttributeLDAPName:       ldapDisplayName,
 			AttributeID:             attributeID,
