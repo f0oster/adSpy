@@ -33,7 +33,7 @@ type Domain struct {
 	DomainID         pgtype.UUID `json:"domain_id"`
 	DomainName       string      `json:"domain_name"`
 	DomainController string      `json:"domain_controller"`
-	CurrentUsn       pgtype.Int8 `json:"current_usn"`
+	LastProcessedUsn pgtype.Int8 `json:"last_processed_usn"`
 	HighestUsn       pgtype.Int8 `json:"highest_usn"`
 }
 
@@ -41,7 +41,7 @@ type Object struct {
 	ObjectID          pgtype.UUID      `json:"object_id"`
 	ObjectType        string           `json:"object_type"`
 	Distinguishedname pgtype.Text      `json:"distinguishedname"`
-	CurrentUsn        pgtype.Int8      `json:"current_usn"`
+	LastProcessedUsn  pgtype.Int8      `json:"last_processed_usn"`
 	DomainID          pgtype.UUID      `json:"domain_id"`
 	CreatedAt         pgtype.Timestamp `json:"created_at"`
 	UpdatedAt         pgtype.Timestamp `json:"updated_at"`

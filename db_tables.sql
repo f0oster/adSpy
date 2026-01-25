@@ -4,7 +4,7 @@ CREATE TABLE Domains (
     domain_name VARCHAR(255) NOT NULL,
     schema_metadata JSONB,
     domain_controller VARCHAR NOT NULL,
-    current_usn BIGINT,
+    last_processed_usn BIGINT,
     highest_usn BIGINT
 );
 

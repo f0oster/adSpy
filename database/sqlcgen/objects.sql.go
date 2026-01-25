@@ -11,19 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const updateCurrentUSN = `-- name: UpdateCurrentUSN :exec
+const updateLastProcessedUSN = `-- name: UpdateLastProcessedUSN :exec
 UPDATE Objects
-SET current_usn = $1
+SET last_processed_usn = $1
 WHERE object_id = $2
 `
 
-type UpdateCurrentUSNParams struct {
-	CurrentUsn pgtype.Int8 `json:"current_usn"`
-	ObjectID   pgtype.UUID `json:"object_id"`
+type UpdateLastProcessedUSNParams struct {
+	LastProcessedUsn pgtype.Int8 `json:"last_processed_usn"`
+	ObjectID         pgtype.UUID `json:"object_id"`
 }
 
-func (q *Queries) UpdateCurrentUSN(ctx context.Context, arg UpdateCurrentUSNParams) error {
-	_, err := q.db.Exec(ctx, updateCurrentUSN, arg.CurrentUsn, arg.ObjectID)
+func (q *Queries) UpdateLastProcessedUSN(ctx context.Context, arg UpdateLastProcessedUSNParams) error {
+	_, err := q.db.Exec(ctx, updateLastProcessedUSN, arg.LastProcessedUsn, arg.ObjectID)
 	return err
 }
 
@@ -35,7 +35,7 @@ DO UPDATE SET
     updated_at = NOW(),
     distinguishedName = EXCLUDED.distinguishedName,
     object_type = EXCLUDED.object_type
-RETURNING current_usn
+RETURNING last_processed_usn
 `
 
 type UpsertObjectParams struct {
@@ -52,7 +52,7 @@ func (q *Queries) UpsertObject(ctx context.Context, arg UpsertObjectParams) (pgt
 		arg.Distinguishedname,
 		arg.DomainID,
 	)
-	var current_usn pgtype.Int8
-	err := row.Scan(&current_usn)
-	return current_usn, err
+	var last_processed_usn pgtype.Int8
+	err := row.Scan(&last_processed_usn)
+	return last_processed_usn, err
 }

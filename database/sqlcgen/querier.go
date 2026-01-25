@@ -16,7 +16,9 @@ type Querier interface {
 	InsertAttributeChange(ctx context.Context, arg InsertAttributeChangeParams) error
 	InsertDomain(ctx context.Context, arg InsertDomainParams) error
 	InsertVersion(ctx context.Context, arg InsertVersionParams) error
-	UpdateCurrentUSN(ctx context.Context, arg UpdateCurrentUSNParams) error
+	UpdateDomainHighestUSN(ctx context.Context, arg UpdateDomainHighestUSNParams) error
+	UpdateDomainLastProcessedUSN(ctx context.Context, arg UpdateDomainLastProcessedUSNParams) error
+	UpdateLastProcessedUSN(ctx context.Context, arg UpdateLastProcessedUSNParams) error
 	UpsertAttributeSchema(ctx context.Context, arg UpsertAttributeSchemaParams) error
 	UpsertObject(ctx context.Context, arg UpsertObjectParams) (pgtype.Int8, error)
 }

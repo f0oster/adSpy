@@ -12,7 +12,7 @@ import (
 )
 
 const insertDomain = `-- name: InsertDomain :exec
-INSERT INTO Domains (domain_id, domain_name, domain_controller, highest_usn, current_usn)
+INSERT INTO Domains (domain_id, domain_name, domain_controller, highest_usn, last_processed_usn)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (domain_id) DO NOTHING
 `
@@ -22,7 +22,7 @@ type InsertDomainParams struct {
 	DomainName       string      `json:"domain_name"`
 	DomainController string      `json:"domain_controller"`
 	HighestUsn       pgtype.Int8 `json:"highest_usn"`
-	CurrentUsn       pgtype.Int8 `json:"current_usn"`
+	LastProcessedUsn pgtype.Int8 `json:"last_processed_usn"`
 }
 
 func (q *Queries) InsertDomain(ctx context.Context, arg InsertDomainParams) error {
@@ -31,7 +31,35 @@ func (q *Queries) InsertDomain(ctx context.Context, arg InsertDomainParams) erro
 		arg.DomainName,
 		arg.DomainController,
 		arg.HighestUsn,
-		arg.CurrentUsn,
+		arg.LastProcessedUsn,
 	)
+	return err
+}
+
+const updateDomainHighestUSN = `-- name: UpdateDomainHighestUSN :exec
+UPDATE Domains SET highest_usn = $1 WHERE domain_id = $2
+`
+
+type UpdateDomainHighestUSNParams struct {
+	HighestUsn pgtype.Int8 `json:"highest_usn"`
+	DomainID   pgtype.UUID `json:"domain_id"`
+}
+
+func (q *Queries) UpdateDomainHighestUSN(ctx context.Context, arg UpdateDomainHighestUSNParams) error {
+	_, err := q.db.Exec(ctx, updateDomainHighestUSN, arg.HighestUsn, arg.DomainID)
+	return err
+}
+
+const updateDomainLastProcessedUSN = `-- name: UpdateDomainLastProcessedUSN :exec
+UPDATE Domains SET last_processed_usn = $1 WHERE domain_id = $2
+`
+
+type UpdateDomainLastProcessedUSNParams struct {
+	LastProcessedUsn pgtype.Int8 `json:"last_processed_usn"`
+	DomainID         pgtype.UUID `json:"domain_id"`
+}
+
+func (q *Queries) UpdateDomainLastProcessedUSN(ctx context.Context, arg UpdateDomainLastProcessedUSNParams) error {
+	_, err := q.db.Exec(ctx, updateDomainLastProcessedUSN, arg.LastProcessedUsn, arg.DomainID)
 	return err
 }

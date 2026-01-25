@@ -131,7 +131,7 @@ func (s *Service) createInitialVersion(
 	}
 
 	// Update object to point to this version's USN
-	if err := s.dbClient.UpdateCurrentUSN(ctx, tx, snap.USNChanged, snap.ObjectGUID); err != nil {
+	if err := s.dbClient.UpdateLastProcessedUSN(ctx, tx, snap.USNChanged, snap.ObjectGUID); err != nil {
 		return fmt.Errorf("failed to update current USN: %w", err)
 	}
 
@@ -189,7 +189,7 @@ func (s *Service) updateIfChanged(
 	}
 
 	// Update current USN pointer
-	if err := s.dbClient.UpdateCurrentUSN(ctx, tx, snap.USNChanged, snap.ObjectGUID); err != nil {
+	if err := s.dbClient.UpdateLastProcessedUSN(ctx, tx, snap.USNChanged, snap.ObjectGUID); err != nil {
 		return fmt.Errorf("failed to update current USN: %w", err)
 	}
 

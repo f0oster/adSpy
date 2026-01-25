@@ -2,7 +2,7 @@ CREATE TABLE Domains (
     domain_id UUID PRIMARY KEY,
     domain_name VARCHAR(255) NOT NULL,
     domain_controller VARCHAR NOT NULL,
-    current_usn BIGINT,
+    last_processed_usn BIGINT,
     highest_usn BIGINT
 );
 
@@ -10,7 +10,7 @@ CREATE TABLE Objects (
     object_id UUID PRIMARY KEY,
     object_type VARCHAR(255) NOT NULL,
     distinguishedName VARCHAR(255),
-    current_usn BIGINT,
+    last_processed_usn BIGINT,
     domain_id UUID,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

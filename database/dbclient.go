@@ -25,7 +25,7 @@ func NewDBClient(pool *pgxpool.Pool) *DBClient {
 	}
 }
 
-// Returns the current USN (nil if this is a new object).
+// Returns the last processed USN (nil if this is a new object).
 func (r *DBClient) UpsertObject(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -91,7 +91,7 @@ func (r *DBClient) CreateVersion(
 	return nil
 }
 
-func (r *DBClient) UpdateCurrentUSN(
+func (r *DBClient) UpdateLastProcessedUSN(
 	ctx context.Context,
 	tx pgx.Tx,
 	usnChanged int64,
@@ -99,12 +99,12 @@ func (r *DBClient) UpdateCurrentUSN(
 ) error {
 	txQueries := r.queries.WithTx(tx)
 
-	err := txQueries.UpdateCurrentUSN(ctx, sqlcgen.UpdateCurrentUSNParams{
-		CurrentUsn: pgtype.Int8{Int64: usnChanged, Valid: true},
-		ObjectID:   uuidToPgtype(objectID),
+	err := txQueries.UpdateLastProcessedUSN(ctx, sqlcgen.UpdateLastProcessedUSNParams{
+		LastProcessedUsn: pgtype.Int8{Int64: usnChanged, Valid: true},
+		ObjectID:         uuidToPgtype(objectID),
 	})
 	if err != nil {
-		return fmt.Errorf("update current USN query failed: %w", err)
+		return fmt.Errorf("update last processed USN query failed: %w", err)
 	}
 	return nil
 }
@@ -182,7 +182,7 @@ func (r *DBClient) InsertDomain(
 		DomainName:       domainName,
 		DomainController: domainController,
 		HighestUsn:       pgtype.Int8{Int64: highestUSN, Valid: true},
-		CurrentUsn:       pgtype.Int8{Int64: 0, Valid: true},
+		LastProcessedUsn: pgtype.Int8{Int64: 0, Valid: true},
 	})
 	if err != nil {
 		return fmt.Errorf("insert domain failed: %w", err)
@@ -215,6 +215,36 @@ func (r *DBClient) UpsertAttributeSchema(
 	})
 	if err != nil {
 		return fmt.Errorf("upsert attribute schema failed: %w", err)
+	}
+	return nil
+}
+
+func (r *DBClient) UpdateDomainLastProcessedUSN(
+	ctx context.Context,
+	domainID uuid.UUID,
+	lastProcessedUSN int64,
+) error {
+	err := r.queries.UpdateDomainLastProcessedUSN(ctx, sqlcgen.UpdateDomainLastProcessedUSNParams{
+		DomainID:         uuidToPgtype(domainID),
+		LastProcessedUsn: pgtype.Int8{Int64: lastProcessedUSN, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("update domain last processed USN failed: %w", err)
+	}
+	return nil
+}
+
+func (r *DBClient) UpdateDomainHighestUSN(
+	ctx context.Context,
+	domainID uuid.UUID,
+	highestUSN int64,
+) error {
+	err := r.queries.UpdateDomainHighestUSN(ctx, sqlcgen.UpdateDomainHighestUSNParams{
+		DomainID:   uuidToPgtype(domainID),
+		HighestUsn: pgtype.Int8{Int64: highestUSN, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("update domain highest USN failed: %w", err)
 	}
 	return nil
 }

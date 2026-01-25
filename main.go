@@ -69,12 +69,16 @@ func main() {
 	log.Println("adSpy initialized - monitoring AD for changes")
 
 	for {
-		if err := processChanges(ctx, adInstance, snapshotService, versioningService); err != nil {
+		if err := processChanges(ctx, adInstance, snapshotService, versioningService, db.Client()); err != nil {
 			log.Printf("Error processing changes: %v", err)
 		}
 
 		if err := adInstance.FetchHighestUSN(); err != nil {
 			log.Printf("Error fetching highest USN: %v", err)
+		} else {
+			if err := db.Client().UpdateDomainHighestUSN(ctx, adInstance.DomainId, adInstance.HighestCommittedUSN); err != nil {
+				log.Printf("Error updating domain highest USN: %v", err)
+			}
 		}
 
 		time.Sleep(1 * time.Second)
@@ -87,6 +91,7 @@ func processChanges(
 	adInstance *activedirectory.ActiveDirectoryInstance,
 	snapshotService *snapshot.Service,
 	versioningService *versioning.Service,
+	dbClient *database.DBClient,
 ) error {
 	// Note: LDAP doesn't support > operator, so we use >= with (USN + 1)
 	ldapFilter := ldaphelpers.And(
@@ -168,5 +173,17 @@ func processChanges(
 	}
 
 	log.Printf("Successfully processed %d objects", len(snapshots))
+
+	// Find the maximum USN from processed snapshots and update domain's last_processed_usn
+	var maxUSN int64
+	for _, snap := range snapshots {
+		if snap.USNChanged > maxUSN {
+			maxUSN = snap.USNChanged
+		}
+	}
+	if err := dbClient.UpdateDomainLastProcessedUSN(ctx, adInstance.DomainId, maxUSN); err != nil {
+		return fmt.Errorf("failed to update domain last processed USN: %w", err)
+	}
+
 	return nil
 }
