@@ -12,7 +12,7 @@ CREATE TABLE Domains (
 CREATE TABLE Objects (
     object_id UUID PRIMARY KEY,
     object_type VARCHAR(255) NOT NULL,
-    distinguishedName VARCHAR(255),
+    distinguishedName TEXT NOT NULL,
     current_version UUID,
     domain_id UUID,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -9,9 +9,9 @@ CREATE TABLE Domains (
 CREATE TABLE Objects (
     object_id UUID PRIMARY KEY,
     object_type VARCHAR(255) NOT NULL,
-    distinguishedName VARCHAR(255),
+    distinguishedName TEXT NOT NULL,
     last_processed_usn BIGINT,
-    domain_id UUID,
+    domain_id UUID NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP
@@ -67,6 +67,7 @@ ADD CONSTRAINT fk_attribute_schemas_domain_id FOREIGN KEY (domain_id) REFERENCES
 -- Indexes
 CREATE INDEX idx_objects_domain_id ON Objects(domain_id);
 CREATE INDEX idx_objects_object_type ON Objects(object_type);
+CREATE INDEX idx_objects_dn ON Objects(distinguishedName);
 CREATE INDEX idx_object_versions_object_id ON ObjectVersions(object_id);
 CREATE INDEX idx_object_versions_timestamp ON ObjectVersions(timestamp);
 CREATE INDEX idx_attribute_changes_object_id ON AttributeChanges(object_id);

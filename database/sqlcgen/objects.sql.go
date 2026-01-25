@@ -41,7 +41,7 @@ RETURNING last_processed_usn
 type UpsertObjectParams struct {
 	ObjectID          pgtype.UUID `json:"object_id"`
 	ObjectType        string      `json:"object_type"`
-	Distinguishedname pgtype.Text `json:"distinguishedname"`
+	Distinguishedname string      `json:"distinguishedname"`
 	DomainID          pgtype.UUID `json:"domain_id"`
 }
 

@@ -39,7 +39,7 @@ func (r *DBClient) UpsertObject(
 	currentUSN, err := txQueries.UpsertObject(ctx, sqlcgen.UpsertObjectParams{
 		ObjectID:          uuidToPgtype(objectID),
 		ObjectType:        objectType,
-		Distinguishedname: pgtype.Text{String: dn, Valid: true},
+		Distinguishedname: dn,
 		DomainID:          uuidToPgtype(domainID),
 	})
 	if err != nil {
