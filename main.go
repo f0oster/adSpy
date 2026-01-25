@@ -64,7 +64,7 @@ func main() {
 	log.Printf("Persisted %d attribute schemas", len(schemas))
 
 	snapshotService := snapshot.NewService()
-	versioningService := versioning.NewService(db.Client(), snapshotService)
+	versioningService := versioning.NewService(db.Client(), snapshotService, adInstance.DomainId, adInstance.SchemaRegistry)
 
 	log.Println("adSpy initialized - monitoring AD for changes")
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 
+	"f0oster/adspy/activedirectory/schema"
 	"f0oster/adspy/database"
 	"f0oster/adspy/diff"
 	"f0oster/adspy/snapshot"
@@ -19,12 +20,21 @@ import (
 type Service struct {
 	dbClient        *database.DBClient
 	snapshotService *snapshot.Service
+	domainID        uuid.UUID
+	schemaRegistry  *schema.SchemaRegistry
 }
 
-func NewService(client *database.DBClient, snapSvc *snapshot.Service) *Service {
+func NewService(
+	client *database.DBClient,
+	snapSvc *snapshot.Service,
+	domainID uuid.UUID,
+	schemaRegistry *schema.SchemaRegistry,
+) *Service {
 	return &Service{
 		dbClient:        client,
 		snapshotService: snapSvc,
+		domainID:        domainID,
+		schemaRegistry:  schemaRegistry,
 	}
 }
 
@@ -75,7 +85,7 @@ func (s *Service) processSnapshot(
 	domainID uuid.UUID,
 ) error {
 	// Upsert the object record
-	currentVersion, err := s.dbClient.UpsertObject(
+	currentUSN, err := s.dbClient.UpsertObject(
 		ctx, tx,
 		snap.ObjectGUID,
 		snap.ObjectType,
@@ -86,13 +96,13 @@ func (s *Service) processSnapshot(
 		return fmt.Errorf("upsert object failed: %w", err)
 	}
 
-	// Business decision: New object (no current version) or existing object?
-	if currentVersion == nil {
+	// Business decision: New object (no current USN) or existing object?
+	if currentUSN == nil {
 		return s.createInitialVersion(ctx, tx, snap)
 	}
 
 	// Existing object - check for changes
-	return s.updateIfChanged(ctx, tx, snap, *currentVersion)
+	return s.updateIfChanged(ctx, tx, snap, *currentUSN)
 }
 
 // createInitialVersion creates the first version for a new object.
@@ -108,12 +118,11 @@ func (s *Service) createInitialVersion(
 		return fmt.Errorf("failed to marshal attributes: %w", err)
 	}
 
-	// Create new version
-	newVersionID := uuid.New()
+	// Create new version using the object's USN
 	if err := s.dbClient.CreateVersion(
 		ctx, tx,
-		newVersionID,
 		snap.ObjectGUID,
+		snap.USNChanged,
 		snap.Timestamp,
 		snapshotJSON,
 		ModifiedBySystem,
@@ -121,12 +130,12 @@ func (s *Service) createInitialVersion(
 		return fmt.Errorf("failed to create version: %w", err)
 	}
 
-	// Update object to point to this version
-	if err := s.dbClient.UpdateCurrentVersion(ctx, tx, newVersionID, snap.ObjectGUID); err != nil {
-		return fmt.Errorf("failed to update current version: %w", err)
+	// Update object to point to this version's USN
+	if err := s.dbClient.UpdateCurrentUSN(ctx, tx, snap.USNChanged, snap.ObjectGUID); err != nil {
+		return fmt.Errorf("failed to update current USN: %w", err)
 	}
 
-	log.Printf("Created new object %s (DN: %s)", snap.ObjectGUID, snap.DN)
+	log.Printf("Created new object %s (DN: %s) with USN %d", snap.ObjectGUID, snap.DN, snap.USNChanged)
 	return nil
 }
 
@@ -136,10 +145,10 @@ func (s *Service) updateIfChanged(
 	ctx context.Context,
 	tx pgx.Tx,
 	snap *snapshot.Snapshot,
-	currentVersionID uuid.UUID,
+	currentUSN int64,
 ) error {
-	// Load previous snapshot from database
-	previousJSON, err := s.dbClient.GetVersionSnapshot(ctx, tx, currentVersionID)
+	// Load previous snapshot from database using composite key
+	previousJSON, err := s.dbClient.GetVersionSnapshot(ctx, tx, snap.ObjectGUID, currentUSN)
 	if err != nil {
 		return fmt.Errorf("failed to load previous snapshot: %w", err)
 	}
@@ -167,12 +176,11 @@ func (s *Service) updateIfChanged(
 		return fmt.Errorf("failed to marshal attributes: %w", err)
 	}
 
-	// Create new version
-	newVersionID := uuid.New()
+	// Create new version using the snapshot's USN
 	if err := s.dbClient.CreateVersion(
 		ctx, tx,
-		newVersionID,
 		snap.ObjectGUID,
+		snap.USNChanged,
 		snap.Timestamp,
 		snapshotJSON,
 		ModifiedBySystem,
@@ -180,13 +188,20 @@ func (s *Service) updateIfChanged(
 		return fmt.Errorf("failed to create new version: %w", err)
 	}
 
-	// Update current version pointer
-	if err := s.dbClient.UpdateCurrentVersion(ctx, tx, newVersionID, snap.ObjectGUID); err != nil {
-		return fmt.Errorf("failed to update current version: %w", err)
+	// Update current USN pointer
+	if err := s.dbClient.UpdateCurrentUSN(ctx, tx, snap.USNChanged, snap.ObjectGUID); err != nil {
+		return fmt.Errorf("failed to update current USN: %w", err)
 	}
 
 	// Record individual attribute changes
 	for _, change := range changes {
+		// Look up attribute schema ID from the schema registry
+		attrSchema, ok := s.schemaRegistry.GetAttributeSchema(change.Name)
+		if !ok {
+			log.Printf("Warning: unknown attribute '%s' - skipping change record", change.Name)
+			continue
+		}
+
 		oldJSON, err := json.Marshal(change.Old)
 		if err != nil {
 			return fmt.Errorf("failed to marshal old value for %s: %w", change.Name, err)
@@ -199,12 +214,11 @@ func (s *Service) updateIfChanged(
 
 		if err := s.dbClient.RecordAttributeChange(
 			ctx, tx,
-			uuid.New(),
 			snap.ObjectGUID,
-			change.Name,
+			snap.USNChanged,
+			attrSchema.ObjectGUID,
 			oldJSON,
 			newJSON,
-			newVersionID,
 			snap.Timestamp,
 		); err != nil {
 			return fmt.Errorf("failed to record attribute change for %s: %w", change.Name, err)
@@ -214,7 +228,7 @@ func (s *Service) updateIfChanged(
 			snap.ObjectGUID, snap.DN, change.Name, change.Old, change.New)
 	}
 
-	log.Printf("Updated object %s (DN: %s) with %d changes", snap.ObjectGUID, snap.DN, len(changes))
+	log.Printf("Updated object %s (DN: %s) with %d changes at USN %d", snap.ObjectGUID, snap.DN, len(changes), snap.USNChanged)
 	return nil
 }
 

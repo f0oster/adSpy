@@ -11,13 +11,14 @@ import (
 )
 
 type Querier interface {
-	GetPreviousSnapshot(ctx context.Context, versionID pgtype.UUID) ([]byte, error)
+	GetAttributeSchemaByLDAPName(ctx context.Context, arg GetAttributeSchemaByLDAPNameParams) (pgtype.UUID, error)
+	GetPreviousSnapshot(ctx context.Context, arg GetPreviousSnapshotParams) ([]byte, error)
 	InsertAttributeChange(ctx context.Context, arg InsertAttributeChangeParams) error
 	InsertDomain(ctx context.Context, arg InsertDomainParams) error
 	InsertVersion(ctx context.Context, arg InsertVersionParams) error
-	UpdateCurrentVersion(ctx context.Context, arg UpdateCurrentVersionParams) error
+	UpdateCurrentUSN(ctx context.Context, arg UpdateCurrentUSNParams) error
 	UpsertAttributeSchema(ctx context.Context, arg UpsertAttributeSchemaParams) error
-	UpsertObject(ctx context.Context, arg UpsertObjectParams) (pgtype.UUID, error)
+	UpsertObject(ctx context.Context, arg UpsertObjectParams) (pgtype.Int8, error)
 }
 
 var _ Querier = (*Queries)(nil)

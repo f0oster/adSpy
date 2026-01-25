@@ -25,7 +25,7 @@ func NewDBClient(pool *pgxpool.Pool) *DBClient {
 	}
 }
 
-// Returns the current version ID (nil if this is a new object).
+// Returns the current USN (nil if this is a new object).
 func (r *DBClient) UpsertObject(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -33,10 +33,10 @@ func (r *DBClient) UpsertObject(
 	objectType string,
 	dn string,
 	domainID uuid.UUID,
-) (*uuid.UUID, error) {
+) (*int64, error) {
 	txQueries := r.queries.WithTx(tx)
 
-	currentVersion, err := txQueries.UpsertObject(ctx, sqlcgen.UpsertObjectParams{
+	currentUSN, err := txQueries.UpsertObject(ctx, sqlcgen.UpsertObjectParams{
 		ObjectID:          uuidToPgtype(objectID),
 		ObjectType:        objectType,
 		Distinguishedname: pgtype.Text{String: dn, Valid: true},
@@ -46,17 +46,21 @@ func (r *DBClient) UpsertObject(
 		return nil, fmt.Errorf("upsert object query failed: %w", err)
 	}
 
-	return pgtypeToUUID(currentVersion), nil
+	return pgtypeToInt64(currentUSN), nil
 }
 
 func (r *DBClient) GetVersionSnapshot(
 	ctx context.Context,
 	tx pgx.Tx,
-	versionID uuid.UUID,
+	objectID uuid.UUID,
+	usnChanged int64,
 ) ([]byte, error) {
 	txQueries := r.queries.WithTx(tx)
 
-	snapshotJSON, err := txQueries.GetPreviousSnapshot(ctx, uuidToPgtype(versionID))
+	snapshotJSON, err := txQueries.GetPreviousSnapshot(ctx, sqlcgen.GetPreviousSnapshotParams{
+		ObjectID:   uuidToPgtype(objectID),
+		UsnChanged: usnChanged,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("get version snapshot query failed: %w", err)
 	}
@@ -66,8 +70,8 @@ func (r *DBClient) GetVersionSnapshot(
 func (r *DBClient) CreateVersion(
 	ctx context.Context,
 	tx pgx.Tx,
-	versionID uuid.UUID,
 	objectID uuid.UUID,
+	usnChanged int64,
 	timestamp time.Time,
 	attributesJSON []byte,
 	modifiedBy string,
@@ -75,8 +79,8 @@ func (r *DBClient) CreateVersion(
 	txQueries := r.queries.WithTx(tx)
 
 	err := txQueries.InsertVersion(ctx, sqlcgen.InsertVersionParams{
-		VersionID:          uuidToPgtype(versionID),
 		ObjectID:           uuidToPgtype(objectID),
+		UsnChanged:         usnChanged,
 		Timestamp:          pgtype.Timestamp{Time: timestamp, Valid: true},
 		AttributesSnapshot: attributesJSON,
 		ModifiedBy:         pgtype.Text{String: modifiedBy, Valid: true},
@@ -87,20 +91,20 @@ func (r *DBClient) CreateVersion(
 	return nil
 }
 
-func (r *DBClient) UpdateCurrentVersion(
+func (r *DBClient) UpdateCurrentUSN(
 	ctx context.Context,
 	tx pgx.Tx,
-	versionID uuid.UUID,
+	usnChanged int64,
 	objectID uuid.UUID,
 ) error {
 	txQueries := r.queries.WithTx(tx)
 
-	err := txQueries.UpdateCurrentVersion(ctx, sqlcgen.UpdateCurrentVersionParams{
-		CurrentVersion: uuidToPgtype(versionID),
-		ObjectID:       uuidToPgtype(objectID),
+	err := txQueries.UpdateCurrentUSN(ctx, sqlcgen.UpdateCurrentUSNParams{
+		CurrentUsn: pgtype.Int8{Int64: usnChanged, Valid: true},
+		ObjectID:   uuidToPgtype(objectID),
 	})
 	if err != nil {
-		return fmt.Errorf("update current version query failed: %w", err)
+		return fmt.Errorf("update current USN query failed: %w", err)
 	}
 	return nil
 }
@@ -108,29 +112,42 @@ func (r *DBClient) UpdateCurrentVersion(
 func (r *DBClient) RecordAttributeChange(
 	ctx context.Context,
 	tx pgx.Tx,
-	changeID uuid.UUID,
 	objectID uuid.UUID,
-	attributeName string,
+	usnChanged int64,
+	attributeSchemaID uuid.UUID,
 	oldValue []byte,
 	newValue []byte,
-	versionID uuid.UUID,
 	timestamp time.Time,
 ) error {
 	txQueries := r.queries.WithTx(tx)
 
 	err := txQueries.InsertAttributeChange(ctx, sqlcgen.InsertAttributeChangeParams{
-		ChangeID:      uuidToPgtype(changeID),
-		ObjectID:      uuidToPgtype(objectID),
-		AttributeName: attributeName,
-		OldValue:      oldValue,
-		NewValue:      newValue,
-		VersionID:     uuidToPgtype(versionID),
-		Timestamp:     pgtype.Timestamp{Time: timestamp, Valid: true},
+		ObjectID:          uuidToPgtype(objectID),
+		UsnChanged:        usnChanged,
+		AttributeSchemaID: uuidToPgtype(attributeSchemaID),
+		OldValue:          oldValue,
+		NewValue:          newValue,
+		Timestamp:         pgtype.Timestamp{Time: timestamp, Valid: true},
 	})
 	if err != nil {
 		return fmt.Errorf("record attribute change query failed: %w", err)
 	}
 	return nil
+}
+
+func (r *DBClient) GetAttributeSchemaByLDAPName(
+	ctx context.Context,
+	domainID uuid.UUID,
+	ldapDisplayName string,
+) (*uuid.UUID, error) {
+	schemaGUID, err := r.queries.GetAttributeSchemaByLDAPName(ctx, sqlcgen.GetAttributeSchemaByLDAPNameParams{
+		DomainID:        uuidToPgtype(domainID),
+		LdapDisplayName: ldapDisplayName,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get attribute schema by LDAP name query failed: %w", err)
+	}
+	return pgtypeToUUID(schemaGUID), nil
 }
 
 func (r *DBClient) BeginTx(ctx context.Context) (pgx.Tx, error) {
@@ -214,4 +231,11 @@ func pgtypeToUUID(id pgtype.UUID) *uuid.UUID {
 	}
 	result := uuid.UUID(id.Bytes)
 	return &result
+}
+
+func pgtypeToInt64(val pgtype.Int8) *int64 {
+	if !val.Valid {
+		return nil
+	}
+	return &val.Int64
 }

@@ -14,3 +14,8 @@ DO UPDATE SET
     om_syntax = EXCLUDED.om_syntax,
     syntax_name = EXCLUDED.syntax_name,
     is_single_valued = EXCLUDED.is_single_valued;
+
+-- name: GetAttributeSchemaByLDAPName :one
+SELECT object_guid
+FROM AttributeSchemas
+WHERE domain_id = $1 AND ldap_display_name = $2;

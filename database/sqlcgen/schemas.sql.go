@@ -11,6 +11,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getAttributeSchemaByLDAPName = `-- name: GetAttributeSchemaByLDAPName :one
+SELECT object_guid
+FROM AttributeSchemas
+WHERE domain_id = $1 AND ldap_display_name = $2
+`
+
+type GetAttributeSchemaByLDAPNameParams struct {
+	DomainID        pgtype.UUID `json:"domain_id"`
+	LdapDisplayName string      `json:"ldap_display_name"`
+}
+
+func (q *Queries) GetAttributeSchemaByLDAPName(ctx context.Context, arg GetAttributeSchemaByLDAPNameParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getAttributeSchemaByLDAPName, arg.DomainID, arg.LdapDisplayName)
+	var object_guid pgtype.UUID
+	err := row.Scan(&object_guid)
+	return object_guid, err
+}
+
 const upsertAttributeSchema = `-- name: UpsertAttributeSchema :exec
 INSERT INTO AttributeSchemas (
     object_guid, domain_id, ldap_display_name, attribute_name, attribute_id,

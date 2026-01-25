@@ -21,6 +21,9 @@ type Snapshot struct {
 	// IsDeleted indicates if this object is in the Deleted Objects container
 	IsDeleted bool
 
+	// USNChanged is the AD-native update sequence number for this version
+	USNChanged int64
+
 	// Attributes contains the normalized string representation of all object attributes
 	// Key: attribute name, Value: attribute values as string slice
 	Attributes map[string][]string

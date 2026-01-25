@@ -13,35 +13,32 @@ import (
 
 const insertAttributeChange = `-- name: InsertAttributeChange :exec
 INSERT INTO AttributeChanges (
-    change_id,
     object_id,
-    attribute_name,
+    usn_changed,
+    attribute_schema_id,
     old_value,
     new_value,
-    version_id,
     timestamp
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 type InsertAttributeChangeParams struct {
-	ChangeID      pgtype.UUID      `json:"change_id"`
-	ObjectID      pgtype.UUID      `json:"object_id"`
-	AttributeName string           `json:"attribute_name"`
-	OldValue      []byte           `json:"old_value"`
-	NewValue      []byte           `json:"new_value"`
-	VersionID     pgtype.UUID      `json:"version_id"`
-	Timestamp     pgtype.Timestamp `json:"timestamp"`
+	ObjectID          pgtype.UUID      `json:"object_id"`
+	UsnChanged        int64            `json:"usn_changed"`
+	AttributeSchemaID pgtype.UUID      `json:"attribute_schema_id"`
+	OldValue          []byte           `json:"old_value"`
+	NewValue          []byte           `json:"new_value"`
+	Timestamp         pgtype.Timestamp `json:"timestamp"`
 }
 
 func (q *Queries) InsertAttributeChange(ctx context.Context, arg InsertAttributeChangeParams) error {
 	_, err := q.db.Exec(ctx, insertAttributeChange,
-		arg.ChangeID,
 		arg.ObjectID,
-		arg.AttributeName,
+		arg.UsnChanged,
+		arg.AttributeSchemaID,
 		arg.OldValue,
 		arg.NewValue,
-		arg.VersionID,
 		arg.Timestamp,
 	)
 	return err

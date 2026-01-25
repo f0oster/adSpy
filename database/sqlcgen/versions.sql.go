@@ -14,24 +14,29 @@ import (
 const getPreviousSnapshot = `-- name: GetPreviousSnapshot :one
 SELECT attributes_snapshot
 FROM ObjectVersions
-WHERE version_id = $1
+WHERE object_id = $1 AND usn_changed = $2
 `
 
-func (q *Queries) GetPreviousSnapshot(ctx context.Context, versionID pgtype.UUID) ([]byte, error) {
-	row := q.db.QueryRow(ctx, getPreviousSnapshot, versionID)
+type GetPreviousSnapshotParams struct {
+	ObjectID   pgtype.UUID `json:"object_id"`
+	UsnChanged int64       `json:"usn_changed"`
+}
+
+func (q *Queries) GetPreviousSnapshot(ctx context.Context, arg GetPreviousSnapshotParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getPreviousSnapshot, arg.ObjectID, arg.UsnChanged)
 	var attributes_snapshot []byte
 	err := row.Scan(&attributes_snapshot)
 	return attributes_snapshot, err
 }
 
 const insertVersion = `-- name: InsertVersion :exec
-INSERT INTO ObjectVersions (version_id, object_id, timestamp, attributes_snapshot, modified_by)
+INSERT INTO ObjectVersions (object_id, usn_changed, timestamp, attributes_snapshot, modified_by)
 VALUES ($1, $2, $3, $4, $5)
 `
 
 type InsertVersionParams struct {
-	VersionID          pgtype.UUID      `json:"version_id"`
 	ObjectID           pgtype.UUID      `json:"object_id"`
+	UsnChanged         int64            `json:"usn_changed"`
 	Timestamp          pgtype.Timestamp `json:"timestamp"`
 	AttributesSnapshot []byte           `json:"attributes_snapshot"`
 	ModifiedBy         pgtype.Text      `json:"modified_by"`
@@ -39,8 +44,8 @@ type InsertVersionParams struct {
 
 func (q *Queries) InsertVersion(ctx context.Context, arg InsertVersionParams) error {
 	_, err := q.db.Exec(ctx, insertVersion,
-		arg.VersionID,
 		arg.ObjectID,
+		arg.UsnChanged,
 		arg.Timestamp,
 		arg.AttributesSnapshot,
 		arg.ModifiedBy,

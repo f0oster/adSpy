@@ -9,13 +9,12 @@ import (
 )
 
 type Attributechange struct {
-	ChangeID      pgtype.UUID      `json:"change_id"`
-	ObjectID      pgtype.UUID      `json:"object_id"`
-	AttributeName string           `json:"attribute_name"`
-	OldValue      []byte           `json:"old_value"`
-	NewValue      []byte           `json:"new_value"`
-	VersionID     pgtype.UUID      `json:"version_id"`
-	Timestamp     pgtype.Timestamp `json:"timestamp"`
+	ObjectID          pgtype.UUID      `json:"object_id"`
+	UsnChanged        int64            `json:"usn_changed"`
+	AttributeSchemaID pgtype.UUID      `json:"attribute_schema_id"`
+	OldValue          []byte           `json:"old_value"`
+	NewValue          []byte           `json:"new_value"`
+	Timestamp         pgtype.Timestamp `json:"timestamp"`
 }
 
 type Attributeschema struct {
@@ -42,7 +41,7 @@ type Object struct {
 	ObjectID          pgtype.UUID      `json:"object_id"`
 	ObjectType        string           `json:"object_type"`
 	Distinguishedname pgtype.Text      `json:"distinguishedname"`
-	CurrentVersion    pgtype.UUID      `json:"current_version"`
+	CurrentUsn        pgtype.Int8      `json:"current_usn"`
 	DomainID          pgtype.UUID      `json:"domain_id"`
 	CreatedAt         pgtype.Timestamp `json:"created_at"`
 	UpdatedAt         pgtype.Timestamp `json:"updated_at"`
@@ -50,8 +49,8 @@ type Object struct {
 }
 
 type Objectversion struct {
-	VersionID          pgtype.UUID      `json:"version_id"`
 	ObjectID           pgtype.UUID      `json:"object_id"`
+	UsnChanged         int64            `json:"usn_changed"`
 	Timestamp          pgtype.Timestamp `json:"timestamp"`
 	AttributesSnapshot []byte           `json:"attributes_snapshot"`
 	ModifiedBy         pgtype.Text      `json:"modified_by"`

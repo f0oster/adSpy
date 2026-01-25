@@ -4,6 +4,7 @@ import (
 	"f0oster/adspy/activedirectory"
 	"f0oster/adspy/diff"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -20,6 +21,16 @@ func NewService() *Service {
 func (s *Service) CreateSnapshot(obj *activedirectory.ActiveDirectoryObject) (*Snapshot, error) {
 	if obj == nil {
 		return nil, fmt.Errorf("cannot create snapshot from nil object")
+	}
+
+	// Extract uSNChanged - this is required for versioning
+	usnChangedStr, ok := obj.GetNormalizedAttribute("uSNChanged")
+	if !ok {
+		return nil, fmt.Errorf("object %s is missing required uSNChanged attribute", obj.DN)
+	}
+	usnChanged, err := strconv.ParseInt(usnChangedStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse uSNChanged value '%s': %w", usnChangedStr, err)
 	}
 
 	// Extract object type, handling deleted objects specially
@@ -44,6 +55,7 @@ func (s *Service) CreateSnapshot(obj *activedirectory.ActiveDirectoryObject) (*S
 		ObjectType: objectType,
 		DN:         obj.DN,
 		IsDeleted:  isDeleted,
+		USNChanged: usnChanged,
 		Attributes: attributes,
 		Timestamp:  time.Now(),
 	}, nil

@@ -6,9 +6,9 @@ DO UPDATE SET
     updated_at = NOW(),
     distinguishedName = EXCLUDED.distinguishedName,
     object_type = EXCLUDED.object_type
-RETURNING current_version;
+RETURNING current_usn;
 
--- name: UpdateCurrentVersion :exec
+-- name: UpdateCurrentUSN :exec
 UPDATE Objects
-SET current_version = $1
+SET current_usn = $1
 WHERE object_id = $2;
