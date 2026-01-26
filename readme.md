@@ -1,6 +1,6 @@
 # adSpy
 
-**adSpy** is an open-source Active Directory change auditing tool written in Go. It is currently just a proof of concept and is **not intended or ready for production use**.
+**adSpy** is an open-source Active Directory change auditing tool written in Go. It is currently in early development, as such, it's **not intended or ready for production use**.
 
 The tool monitors Active Directory for object-level changes, snapshots those changes, and stores them in a database for later analysis. It is designed to operate with *least-privilege* access and aims to be fully cross-platform, though testing so far has been limited to Windows.
 
@@ -12,20 +12,20 @@ The tool monitors Active Directory for object-level changes, snapshots those cha
 - When an object changes, adSpy:
   - Detects and stores the specific attribute differences  
   - Stores a new object snapshot
-  - Preserves all historical change units for that object  
+  - Preserves all historical change units for that object
+
+## Components
+
+**Poller** (`cmd/poller`) - Connects to AD, polls for changes, and writes them to the database.
+
+**Web** (`cmd/web`) - Frontend for viewing AD object diffs/change history.
 
 ## Long-Term Goals
 
 - Support for Kerberos authentication, LDAPS, channel binding, and other basic security features  
-- Parsing of security descriptor changes
-- Correlate changes back to the security principal that performed them  
-- Support for database drivers other than PostgreSQL  
-- Some sort of interface to monitor or review changes (likely a web app)
+- Correlate changes back to the security principal that performed them
 
 ## Disclaimers
-
-- **State persistence is not yet implemented.**  
-  On startup, adSpy always drops and recreates its database, rebuilding it from the live directory - as above, the project is not intended to be used for real environments yet.
 
 - **Secure authentication is not yet implemented.**  
   The current LDAP bind / authentication method is suitable for development/testing only.  
@@ -36,8 +36,17 @@ The tool monitors Active Directory for object-level changes, snapshots those cha
 ```bash
 git clone https://github.com/f0oster/adSpy
 cd adSpy
-go build -o adSpy
-./adSpy
+
+# Build the poller
+go build -o adspy-poller ./cmd/poller
+
+# Build the web server and frontend
+cd web/frontend && bun install && bun run build && cd ../..
+go build -o adspy-web ./cmd/web
+
+# Run (in separate terminals)
+./adspy-poller
+./adspy-web
 ```
 
 ## Configuration

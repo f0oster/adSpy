@@ -11,11 +11,17 @@ import (
 )
 
 type Querier interface {
+	CountObjectsForWeb(ctx context.Context, arg CountObjectsForWebParams) (int64, error)
 	GetAttributeSchemaByLDAPName(ctx context.Context, arg GetAttributeSchemaByLDAPNameParams) (pgtype.UUID, error)
+	GetObjectByID(ctx context.Context, objectID pgtype.UUID) (GetObjectByIDRow, error)
+	GetObjectTimeline(ctx context.Context, objectID pgtype.UUID) ([]GetObjectTimelineRow, error)
+	GetObjectTypes(ctx context.Context) ([]string, error)
 	GetPreviousSnapshot(ctx context.Context, arg GetPreviousSnapshotParams) ([]byte, error)
+	GetVersionChanges(ctx context.Context, arg GetVersionChangesParams) ([]GetVersionChangesRow, error)
 	InsertAttributeChange(ctx context.Context, arg InsertAttributeChangeParams) error
 	InsertDomain(ctx context.Context, arg InsertDomainParams) error
 	InsertVersion(ctx context.Context, arg InsertVersionParams) error
+	ListObjectsForWeb(ctx context.Context, arg ListObjectsForWebParams) ([]ListObjectsForWebRow, error)
 	UpdateDomainHighestUSN(ctx context.Context, arg UpdateDomainHighestUSNParams) error
 	UpdateDomainLastProcessedUSN(ctx context.Context, arg UpdateDomainLastProcessedUSNParams) error
 	UpdateLastProcessedUSN(ctx context.Context, arg UpdateLastProcessedUSNParams) error

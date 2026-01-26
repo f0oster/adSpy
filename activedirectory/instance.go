@@ -207,7 +207,6 @@ func (ad *ActiveDirectoryInstance) ForEachLDAPPage(
 
 	log.Println("LDAPFilter:", filter)
 
-	// sdFlagsControl := ldaphelpers.CreateSDFlagsControl() // go-ldap added support for this control
 	sdFlagsControl := ldap.NewControlMicrosoftSDFlags()
 	pageControl := ldap.NewControlPaging(pageSize)
 	showDeletedControl := ldap.NewControlMicrosoftShowDeleted()

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"time"
@@ -17,10 +18,15 @@ import (
 )
 
 func main() {
+	resetDB := flag.Bool("reset-db", false, "Reset database on startup (drops and recreates)")
+	flag.Parse()
+
 	adSpyConfig := config.LoadEnvConfig("settings.env")
 
 	ctx := context.Background()
-	database.ResetDatabase(ctx, adSpyConfig.ManagementDsn, adSpyConfig.AdSpyDsn)
+	if *resetDB {
+		database.ResetDatabase(ctx, adSpyConfig.ManagementDsn, adSpyConfig.AdSpyDsn)
+	}
 	db := database.NewDatabase(adSpyConfig.AdSpyDsn, adSpyConfig.ManagementDsn)
 	if err := db.Connect(ctx); err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
@@ -66,7 +72,7 @@ func main() {
 	snapshotService := snapshot.NewService()
 	versioningService := versioning.NewService(db.Client(), snapshotService, adInstance.DomainId, adInstance.SchemaRegistry)
 
-	log.Println("adSpy initialized - monitoring AD for changes")
+	log.Println("adSpy poller initialized - monitoring AD for changes")
 
 	for {
 		if err := processChanges(ctx, adInstance, snapshotService, versioningService, db.Client()); err != nil {
