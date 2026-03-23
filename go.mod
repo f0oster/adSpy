@@ -1,6 +1,6 @@
 module f0oster/adspy
 
-go 1.24.1
+go 1.25.0
 
 require github.com/go-ldap/ldap/v3 v3.4.13
 
@@ -17,7 +17,7 @@ require (
 	github.com/f0oster/gontsd v0.0.0-20260118105508-447935a12bd5
 	github.com/go-asn1-ber/asn1-ber v1.5.8-0.20250403174932-29230038a667 // indirect
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.8.0
+	github.com/jackc/pgx/v5 v5.9.1
 	github.com/joho/godotenv v1.5.1
 	golang.org/x/crypto v0.48.0 // indirect
 )
