@@ -283,7 +283,7 @@ func (s *Server) handleSDDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	diff, err := sddiff.DiffSecurityDescriptors(oldBytes, newBytes, s.sidResolver)
+	diff, err := sddiff.DiffSecurityDescriptors(oldBytes, newBytes, s.resolver)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Failed to diff: "+err.Error())
 		return

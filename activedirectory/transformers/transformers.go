@@ -199,7 +199,7 @@ type NTSecurityDescriptorFormatter struct{}
 
 func (t NTSecurityDescriptorFormatter) Interpret(values [][]byte) (interface{}, error) {
 
-	ntSecurityDescriptor, err := gontsd.Parse(values[0])
+	ntSecurityDescriptor, err := gontsd.Parse(values[0], nil)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to interpret nTSecurityDescriptor: %w", err)

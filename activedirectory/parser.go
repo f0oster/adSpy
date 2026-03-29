@@ -97,7 +97,7 @@ func (p *Parser) parseEntry(entry *ldap.Entry) (*ActiveDirectoryObject, error) {
 
 		if attr.Name == "nTSecurityDescriptor" {
 			if len(attr.ByteValues) > 0 {
-				nTSecurityDescriptor, err = gontsd.Parse(parsedAttr.LDAPByteValue[0])
+				nTSecurityDescriptor, err = gontsd.Parse(parsedAttr.LDAPByteValue[0], nil)
 				if err != nil {
 					// security descriptor parsing is not critical at this stage as the parser is incomplete
 					log.Printf("failed to parse nTSecurityDescriptor for DN %s: %v\n", entry.DN, err)

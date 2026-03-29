@@ -10,7 +10,7 @@ import (
 	"f0oster/adspy/config"
 	"f0oster/adspy/database"
 
-	"github.com/f0oster/gontsd/resolve"
+	"github.com/f0oster/gontsd"
 )
 
 //go:embed frontend/dist/*
@@ -21,19 +21,19 @@ type Server struct {
 	db          *database.Database
 	mux         *http.ServeMux
 	addr        string
-	sidResolver resolve.SIDResolver
+	resolver *gontsd.Resolver
 }
 
 // NewServer creates a new web server instance.
 func NewServer(db *database.Database, addr string, cfg config.ADSpyConfiguration) *Server {
-	// Create LDAP client for SID resolution
+	// Create LDAP client for SID/GUID resolution
 	// gontsd expects full URL with scheme
 	ldapServer := cfg.DcFQDN
 	if !strings.HasPrefix(ldapServer, "ldap://") && !strings.HasPrefix(ldapServer, "ldaps://") {
 		ldapServer = "ldap://" + ldapServer + ":389"
 	}
 	log.Printf("Creating LDAP client: Server=%s, BaseDN=%s, BindDN=%s", ldapServer, cfg.BaseDN, cfg.Username)
-	ldapClient, err := resolve.NewLDAPClient(resolve.LDAPConfig{
+	ldapClient, err := gontsd.NewLDAPClient(gontsd.LDAPConfig{
 		Server:   ldapServer,
 		BaseDN:   cfg.BaseDN,
 		BindDN:   cfg.Username,
@@ -41,26 +41,27 @@ func NewServer(db *database.Database, addr string, cfg config.ADSpyConfiguration
 		UseTLS:   false,
 	})
 
-	var sidResolver resolve.SIDResolver
+	var resolver *gontsd.Resolver
 	if err != nil {
 		log.Printf("Warning: Could not create LDAP client for SID resolution: %v", err)
-		log.Printf("Falling back to well-known SID resolution only")
-		sidResolver = resolve.WellKnownSIDResolver{}
+		log.Printf("Falling back to well-known SID/GUID resolution only")
+		resolver = gontsd.NewResolver()
 	} else {
-		sidResolver = resolve.ChainSIDResolver{
-			Resolvers: []resolve.SIDResolver{
-				resolve.WellKnownSIDResolver{},
-				resolve.NewLDAPSIDResolver(ldapClient),
-			},
+		resolver, err = gontsd.NewLDAPResolver(ldapClient)
+		if err != nil {
+			log.Printf("Warning: Could not create LDAP resolver: %v", err)
+			log.Printf("Falling back to well-known SID/GUID resolution only")
+			resolver = gontsd.NewResolver()
+		} else {
+			log.Printf("LDAP resolver initialized successfully")
 		}
-		log.Printf("LDAP SID resolver initialized successfully")
 	}
 
 	s := &Server{
 		db:          db,
 		mux:         http.NewServeMux(),
 		addr:        addr,
-		sidResolver: sidResolver,
+		resolver: resolver,
 	}
 	s.registerRoutes()
 	return s
