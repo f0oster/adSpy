@@ -17,7 +17,7 @@ require (
 	github.com/f0oster/gontsd v0.1.0
 	github.com/go-asn1-ber/asn1-ber v1.5.8-0.20250403174932-29230038a667 // indirect
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.9.1
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/joho/godotenv v1.5.1
 	golang.org/x/crypto v0.49.0 // indirect
 )
